@@ -1,0 +1,11 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+release
+.ai-tracker
+layout-before-*.png
+layout-after-*.png
+wifi-analyzer-mobile.png
+*.log
+.DS_Store
