@@ -16,12 +16,30 @@ fn scan_wifi() -> Result<wifi::ScanResult, String> {
 }
 
 fn show_control_panel<R: Runtime>(app: &tauri::AppHandle<R>) {
+    set_dock_visibility(app, true);
+
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
 }
+
+fn hide_control_panel<R: Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+
+    set_dock_visibility(app, false);
+}
+
+#[cfg(target_os = "macos")]
+fn set_dock_visibility<R: Runtime>(app: &tauri::AppHandle<R>, visible: bool) {
+    let _ = app.set_dock_visibility(visible);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_dock_visibility<R: Runtime>(_app: &tauri::AppHandle<R>, _visible: bool) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,7 +54,7 @@ pub fn run() {
                 .separator()
                 .item(&quit)
                 .build()?;
-            let tray_icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/tray-template.png"))?;
 
             TrayIconBuilder::with_id("main-tray")
                 .icon(tray_icon)
@@ -66,10 +84,16 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                hide_control_panel(&window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![scan_wifi])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                show_control_panel(app);
+            }
+        });
 }
