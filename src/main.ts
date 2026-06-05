@@ -13,6 +13,7 @@ interface WifiNetwork {
   frequencyMhz: number;
   band: Band;
   security: string;
+  isConnected: boolean;
 }
 
 interface ChannelCongestion {
@@ -192,8 +193,10 @@ async function runScan(): Promise<void> {
     state.scan = scan;
     ingestHistory(scan);
 
-    if (!state.selectedBssid && scan.networks[0]) {
-      state.selectedBssid = scan.networks[0].bssid;
+    const current = scan.networks.find((network) => network.isConnected);
+    const selectionStillExists = scan.networks.some((network) => network.bssid === state.selectedBssid);
+    if ((!state.selectedBssid || !selectionStillExists) && scan.networks[0]) {
+      state.selectedBssid = current?.bssid ?? scan.networks[0].bssid;
     }
   } catch (error) {
     state.lastError = error instanceof Error ? error.message : String(error);
@@ -244,7 +247,9 @@ function render(): void {
   setText("networkCount", scan ? String(scan.networks.length) : "0");
   setText("bestSignal", scan?.networks[0] ? `${scan.networks[0].signalDbm} dBm` : "--");
   setText("busyChannel", scan ? getBusiestChannelLabel(scan.channels) : "--");
-  setText("scanSource", scan ? scan.source : state.lastError ? "扫描失败" : "待扫描");
+  const sourceLabel = scan ? formatSourceLabel(scan.source) : state.lastError ? "扫描失败" : "待扫描";
+  setText("scanSource", sourceLabel);
+  mustGet<HTMLElement>("scanSource").title = scan?.source ?? sourceLabel;
   setText("scanTime", scan ? formatTime(scan.scannedAt) : "--");
 
   renderNetworks(scan?.networks ?? []);
@@ -275,11 +280,15 @@ function renderNetworks(networks: WifiNetwork[]): void {
   list.innerHTML = networks
     .map((network) => {
       const selected = network.bssid === state.selectedBssid;
+      const connected = network.isConnected;
       return `
-        <button class="network-row ${selected ? "selected" : ""}" type="button" data-bssid="${escapeAttr(network.bssid)}">
+        <button class="network-row ${selected ? "selected" : ""} ${connected ? "connected" : ""}" type="button" data-bssid="${escapeAttr(network.bssid)}">
           <span class="signal-mark ${signalClass(network.signalDbm)}"></span>
           <span class="network-main">
-            <strong>${escapeHtml(network.ssid)}</strong>
+            <span class="network-title">
+              <strong>${escapeHtml(network.ssid)}</strong>
+              ${connected ? '<span class="connected-badge">当前连接</span>' : ""}
+            </span>
             <small>${escapeHtml(network.bssid)} · CH ${network.channel || "--"} · ${network.frequencyMhz || "--"} MHz</small>
           </span>
           <span class="network-side">
@@ -401,6 +410,7 @@ function renderSelectedDetail(network?: WifiNetwork): void {
     <div><span>BSSID</span><strong>${escapeHtml(network.bssid)}</strong></div>
     <div><span>安全</span><strong>${escapeHtml(network.security)}</strong></div>
     <div><span>信号质量</span><strong>${network.quality}%</strong></div>
+    <div><span>连接状态</span><strong>${network.isConnected ? "当前连接" : "未连接"}</strong></div>
   `;
 }
 
@@ -489,11 +499,30 @@ function formatTime(value: string): string {
   }).format(new Date(value));
 }
 
+function formatSourceLabel(source: string): string {
+  if (source.startsWith("system_profiler")) {
+    return "系统 WiFi 信息";
+  }
+  if (source.startsWith("airport")) {
+    return "airport 扫描";
+  }
+  if (source.startsWith("netsh")) {
+    return "Windows WiFi";
+  }
+  if (source.startsWith("nmcli")) {
+    return "Linux WiFi";
+  }
+  if (source.startsWith("iw ")) {
+    return "iw 扫描";
+  }
+  return source;
+}
+
 function demoScan(): ScanResult {
   const now = new Date().toISOString();
   const jitter = () => Math.round((Math.random() - 0.5) * 8);
   const networks: WifiNetwork[] = [
-    makeDemo("Studio-5G", "8c:85:90:42:11:01", -49 + jitter(), 149, "WPA3", "5GHz"),
+    makeDemo("Studio-5G", "8c:85:90:42:11:01", -49 + jitter(), 149, "WPA3", "5GHz", true),
     makeDemo("Studio-IoT", "8c:85:90:42:11:02", -61 + jitter(), 6, "WPA2", "2.4GHz"),
     makeDemo("Neighbor-Living", "42:31:aa:09:c1:33", -72 + jitter(), 6, "WPA2", "2.4GHz"),
     makeDemo("CafeMesh", "00:25:9c:aa:78:2d", -67 + jitter(), 44, "WPA2", "5GHz"),
@@ -542,6 +571,7 @@ function makeDemo(
   channel: number,
   security: string,
   band: Band,
+  isConnected = false,
 ): WifiNetwork {
   return {
     ssid,
@@ -552,6 +582,7 @@ function makeDemo(
     frequencyMhz: channel <= 14 ? 2407 + channel * 5 : 5000 + channel * 5,
     band,
     security,
+    isConnected,
   };
 }
 

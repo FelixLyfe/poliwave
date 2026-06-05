@@ -14,6 +14,7 @@ pub struct WifiNetwork {
     pub frequency_mhz: u16,
     pub band: String,
     pub security: String,
+    pub is_connected: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,6 +51,7 @@ pub struct ScanResult {
 pub fn scan() -> Result<ScanResult, String> {
     let (source, raw) = scan_raw()?;
     let mut networks = parse_by_platform(&raw);
+    mark_current_connection(&mut networks);
 
     networks.sort_by(|a, b| {
         b.signal_dbm
@@ -71,7 +73,8 @@ pub fn scan() -> Result<ScanResult, String> {
 
 #[cfg(target_os = "macos")]
 fn scan_raw() -> Result<(String, String), String> {
-    let airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
+    let airport =
+        "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
     if let Ok(raw) = run_command(airport, &["-s"]) {
         if !parse_airport(&raw).is_empty() {
             return Ok(("airport -s".to_string(), raw));
@@ -181,12 +184,7 @@ fn parse_airport(raw: &str) -> Vec<WifiNetwork> {
                 .unwrap_or_else(|| "Unknown".to_string());
 
             Some(make_network(
-                ssid,
-                bssid,
-                signal_dbm,
-                channel,
-                security,
-                None,
+                ssid, bssid, signal_dbm, channel, security, None,
             ))
         })
         .collect()
@@ -199,12 +197,14 @@ struct SystemProfilerNetwork {
     channel: u16,
     signal_dbm: Option<i32>,
     security: String,
+    is_connected: bool,
 }
 
 #[cfg(target_os = "macos")]
 fn parse_system_profiler_airport(raw: &str) -> Vec<WifiNetwork> {
     let mut networks = Vec::new();
     let mut in_network_section = false;
+    let mut section_is_connected = false;
     let mut current: Option<SystemProfilerNetwork> = None;
 
     for line in raw.lines() {
@@ -213,6 +213,7 @@ fn parse_system_profiler_airport(raw: &str) -> Vec<WifiNetwork> {
         if trimmed == "Current Network Information:" || trimmed == "Other Local Wi-Fi Networks:" {
             push_system_profiler_network(&mut networks, current.take());
             in_network_section = true;
+            section_is_connected = trimmed == "Current Network Information:";
             continue;
         }
 
@@ -231,6 +232,7 @@ fn parse_system_profiler_airport(raw: &str) -> Vec<WifiNetwork> {
             current = Some(SystemProfilerNetwork {
                 ssid: trimmed.trim_end_matches(':').to_string(),
                 security: "Unknown".to_string(),
+                is_connected: section_is_connected,
                 ..Default::default()
             });
             continue;
@@ -269,14 +271,16 @@ fn push_system_profiler_network(
     let signal_dbm = network.signal_dbm.unwrap_or(-82);
     let bssid = synthetic_bssid(&network.ssid, network.channel, networks.len());
 
-    networks.push(make_network(
+    let mut parsed = make_network(
         network.ssid,
         bssid,
         signal_dbm,
         network.channel,
         network.security,
         None,
-    ));
+    );
+    parsed.is_connected = network.is_connected;
+    networks.push(parsed);
 }
 
 #[cfg(target_os = "macos")]
@@ -322,7 +326,9 @@ fn parse_netsh(raw: &str) -> Vec<WifiNetwork> {
                 current_quality,
                 current_channel,
             );
-            current_bssid = value_after_colon(trimmed).unwrap_or_default().to_lowercase();
+            current_bssid = value_after_colon(trimmed)
+                .unwrap_or_default()
+                .to_lowercase();
             current_quality = None;
             current_channel = None;
         } else if trimmed.starts_with("Signal") || trimmed.starts_with("信号") {
@@ -390,15 +396,10 @@ fn parse_nmcli(raw: &str) -> Vec<WifiNetwork> {
             let signal_dbm = quality_to_dbm(quality);
             let security = parts[5].clone();
 
-            Some(make_network(
-                ssid,
-                bssid,
-                signal_dbm,
-                channel,
-                security,
-                Some(quality),
+            Some(
+                make_network(ssid, bssid, signal_dbm, channel, security, Some(quality))
+                    .with_frequency(frequency_mhz),
             )
-            .with_frequency(frequency_mhz))
         })
         .collect()
 }
@@ -659,7 +660,81 @@ fn make_network(
         } else {
             security
         },
+        is_connected: false,
     }
+}
+
+fn mark_current_connection(networks: &mut [WifiNetwork]) {
+    if networks.iter().any(|network| network.is_connected) {
+        return;
+    }
+
+    let Some(current_ssid) = current_connected_ssid() else {
+        return;
+    };
+
+    for network in networks {
+        if network.ssid == current_ssid {
+            network.is_connected = true;
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn current_connected_ssid() -> Option<String> {
+    let device = macos_wifi_device()?;
+    let raw = run_command("networksetup", &["-getairportnetwork", &device]).ok()?;
+    parse_networksetup_current_ssid(&raw)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn current_connected_ssid() -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn macos_wifi_device() -> Option<String> {
+    let raw = run_command("networksetup", &["-listallhardwareports"]).ok()?;
+    parse_macos_wifi_device(&raw)
+}
+
+#[cfg(target_os = "macos")]
+fn parse_macos_wifi_device(raw: &str) -> Option<String> {
+    let mut in_wifi_port = false;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+
+        if let Some(port) = trimmed.strip_prefix("Hardware Port:") {
+            let port = port.trim();
+            in_wifi_port = port == "Wi-Fi" || port == "AirPort";
+            continue;
+        }
+
+        if in_wifi_port {
+            if let Some(device) = trimmed.strip_prefix("Device:") {
+                let device = device.trim();
+                if !device.is_empty() {
+                    return Some(device.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn parse_networksetup_current_ssid(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.contains("not associated") {
+        return None;
+    }
+
+    trimmed
+        .split_once(": ")
+        .map(|(_, ssid)| ssid.trim().to_string())
+        .filter(|ssid| !ssid.is_empty())
 }
 
 trait WithFrequency {
@@ -851,9 +926,39 @@ mod tests {
         assert_eq!(rows[0].ssid, "ZhaoPin-Employee");
         assert_eq!(rows[0].signal_dbm, -63);
         assert_eq!(rows[0].band, "5GHz");
+        assert!(rows[0].is_connected);
         assert_eq!(rows[1].ssid, "ZhaoPin-Guest");
         assert_eq!(rows[1].band, "2.4GHz");
+        assert!(!rows[1].is_connected);
         assert!(is_mac_address(&rows[1].bssid));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parses_macos_wifi_device_from_networksetup_hardware_ports() {
+        let raw = r#"Hardware Port: Ethernet
+Device: en0
+Ethernet Address: d0:11:e5:0b:ef:20
+
+Hardware Port: Wi-Fi
+Device: en1
+Ethernet Address: d0:11:e5:03:28:84
+"#;
+
+        assert_eq!(parse_macos_wifi_device(raw).as_deref(), Some("en1"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parses_current_ssid_from_networksetup_output() {
+        assert_eq!(
+            parse_networksetup_current_ssid("Current Wi-Fi Network: Studio-5G\n").as_deref(),
+            Some("Studio-5G")
+        );
+        assert_eq!(
+            parse_networksetup_current_ssid("You are not associated with an AirPort network.\n"),
+            None
+        );
     }
 
     #[cfg(target_os = "macos")]
