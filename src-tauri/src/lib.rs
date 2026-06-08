@@ -15,6 +15,16 @@ fn scan_wifi() -> Result<wifi::ScanResult, String> {
     wifi::scan()
 }
 
+#[tauri::command]
+fn connect_wifi(
+    ssid: String,
+    username: Option<String>,
+    password: Option<String>,
+    security: Option<String>,
+) -> Result<wifi::ConnectResult, String> {
+    wifi::connect(ssid, username, password, security)
+}
+
 fn show_control_panel<R: Runtime>(app: &tauri::AppHandle<R>) {
     set_dock_visibility(app, true);
 
@@ -87,7 +97,7 @@ pub fn run() {
                 hide_control_panel(&window.app_handle());
             }
         })
-        .invoke_handler(tauri::generate_handler![scan_wifi])
+        .invoke_handler(tauri::generate_handler![scan_wifi, connect_wifi])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
