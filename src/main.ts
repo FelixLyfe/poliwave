@@ -72,14 +72,17 @@ app.innerHTML = `
   <main class="shell">
     <section class="command-bar">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Desktop WiFi Signal Analyzer</p>
-          <h1>WiFi 信号分析器</h1>
+        <div class="app-lockup">
+          <span class="app-icon" aria-hidden="true"><i data-lucide="wifi"></i></span>
+          <div>
+            <p class="kicker">Desktop WiFi Analyzer</p>
+            <h1>WiFi 分析器</h1>
+          </div>
         </div>
       </header>
 
       <section class="status-grid" aria-label="扫描摘要">
-        <article class="metric">
+        <article class="metric metric-strong">
           <span>发现网络</span>
           <strong id="networkCount">0</strong>
         </article>
@@ -104,7 +107,7 @@ app.innerHTML = `
         </button>
         <label class="toggle">
           <input id="autoScan" type="checkbox" />
-          <span>自动刷新</span>
+          <span>每 5 秒刷新</span>
         </label>
       </div>
     </section>
@@ -113,7 +116,7 @@ app.innerHTML = `
       <aside class="panel network-panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">按信号强度排序</p>
+            <p class="panel-label">按信号强度排序</p>
             <h2>周围 WiFi</h2>
           </div>
           <span id="scanTime" class="stamp">--</span>
@@ -125,7 +128,7 @@ app.innerHTML = `
         <section class="panel curve-panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">RSSI History</p>
+              <p class="panel-label">RSSI 历史</p>
               <h2 id="curveTitle">RSSI 曲线</h2>
             </div>
             <span id="curveMeta" class="stamp">选择一个网络</span>
@@ -138,7 +141,7 @@ app.innerHTML = `
           <div class="panel recommendation-panel">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">连接与信道建议</p>
+                <p class="panel-label">连接与信道</p>
                 <h2>建议</h2>
               </div>
               <i data-lucide="sparkles"></i>
@@ -149,7 +152,7 @@ app.innerHTML = `
           <div class="panel congestion-panel">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Channel Load</p>
+                <p class="panel-label">信道负载</p>
                 <h2>信道拥堵</h2>
               </div>
               <div class="legend">
@@ -289,7 +292,7 @@ function renderNetworks(networks: WifiNetwork[]): void {
               <strong>${escapeHtml(network.ssid)}</strong>
               ${connected ? '<span class="connected-badge">当前连接</span>' : ""}
             </span>
-            <small>${escapeHtml(network.bssid)} · CH ${network.channel || "--"} · ${network.frequencyMhz || "--"} MHz</small>
+            <small>${escapeHtml(network.bssid)} | CH ${network.channel || "--"} | ${network.frequencyMhz || "--"} MHz</small>
           </span>
           <span class="network-side">
             <b>${network.signalDbm} dBm</b>
@@ -392,7 +395,7 @@ function renderCurve(network?: WifiNetwork): void {
 
   const points = state.history.get(network.bssid) ?? [{ time: Date.now(), dbm: network.signalDbm }];
   curveTitle.textContent = `${network.ssid} RSSI`;
-  curveMeta.textContent = `${network.band} · CH ${network.channel || "--"}`;
+  curveMeta.textContent = `${network.band} | CH ${network.channel || "--"}`;
   root.className = "curve";
   root.innerHTML = buildCurveSvg(points);
 }
@@ -408,6 +411,7 @@ function renderSelectedDetail(network?: WifiNetwork): void {
   root.innerHTML = `
     <div><span>SSID</span><strong>${escapeHtml(network.ssid)}</strong></div>
     <div><span>BSSID</span><strong>${escapeHtml(network.bssid)}</strong></div>
+    <div><span>频段</span><strong>${network.band}</strong></div>
     <div><span>安全</span><strong>${escapeHtml(network.security)}</strong></div>
     <div><span>信号质量</span><strong>${network.quality}%</strong></div>
     <div><span>连接状态</span><strong>${network.isConnected ? "当前连接" : "未连接"}</strong></div>
