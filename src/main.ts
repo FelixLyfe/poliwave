@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createIcons, Radar, RadioTower, Sparkles, Wifi } from "lucide";
+import { createIcons, KeyRound, Radar, RadioTower, Sparkles, Wifi, X } from "lucide";
 import "./styles.css";
 
 type Band = "2.4GHz" | "5GHz" | "6GHz" | "Unknown";
@@ -41,6 +41,11 @@ interface ScanResult {
   recommendations: Recommendation[];
 }
 
+interface ConnectResult {
+  ssid: string;
+  message: string;
+}
+
 interface HistoryPoint {
   time: number;
   dbm: number;
@@ -53,14 +58,23 @@ const state: {
   history: Map<string, HistoryPoint[]>;
   autoScan: boolean;
   busy: boolean;
+  connectingBssid?: string;
+  connectDialogBssid?: string;
+  connectDraftPassword: string;
+  connectDraftUsername: string;
   lastError?: string;
+  connectError?: string;
+  connectMessage?: string;
 } = {
   history: new Map(),
   autoScan: false,
   busy: false,
+  connectDraftPassword: "",
+  connectDraftUsername: "",
 };
 
 let autoScanTimer: number | undefined;
+let demoConnectedSsid = "Studio-5G";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -167,6 +181,7 @@ app.innerHTML = `
       </section>
     </section>
   </main>
+  <div id="connectDialogRoot"></div>
 `;
 
 const scanBtn = mustGet<HTMLButtonElement>("scanBtn");
@@ -177,8 +192,13 @@ autoScanInput.addEventListener("change", () => {
   state.autoScan = autoScanInput.checked;
   setupAutoScan();
 });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.connectDialogBssid) {
+    closeConnectDialog();
+  }
+});
 
-createIcons({ icons: { Radar, RadioTower, Sparkles, Wifi } });
+createIcons({ icons: { KeyRound, Radar, RadioTower, Sparkles, Wifi, X } });
 render();
 void runScan();
 
@@ -240,7 +260,7 @@ function ingestHistory(scan: ScanResult): void {
 }
 
 function render(): void {
-  scanBtn.disabled = state.busy;
+  scanBtn.disabled = state.busy || state.connectingBssid !== undefined;
   scanBtn.classList.toggle("loading", state.busy);
   scanBtn.querySelector("span")!.textContent = state.busy ? "扫描中" : "扫描 WiFi";
 
@@ -260,8 +280,9 @@ function render(): void {
   renderChannels(scan?.channels ?? []);
   renderCurve(selected);
   renderSelectedDetail(selected);
+  renderConnectDialog();
 
-  createIcons({ icons: { Radar, RadioTower, Sparkles, Wifi } });
+  createIcons({ icons: { KeyRound, Radar, RadioTower, Sparkles, Wifi, X } });
 }
 
 function renderNetworks(networks: WifiNetwork[]): void {
@@ -307,6 +328,11 @@ function renderNetworks(networks: WifiNetwork[]): void {
   list.querySelectorAll<HTMLButtonElement>(".network-row").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedBssid = button.dataset.bssid;
+      state.connectError = undefined;
+      state.connectMessage = undefined;
+      state.connectDialogBssid = undefined;
+      state.connectDraftPassword = "";
+      state.connectDraftUsername = "";
       render();
     });
   });
@@ -408,6 +434,14 @@ function renderSelectedDetail(network?: WifiNetwork): void {
     return;
   }
 
+  const isOpen = isOpenNetwork(network);
+  const isEnterprise = isEnterpriseNetwork(network);
+  const isHidden = network.ssid === "<hidden>";
+  const connecting = state.connectingBssid === network.bssid;
+  const canConnect = canConnectNetwork(network);
+  const statusClass = state.connectError ? "error" : state.connectMessage ? "success" : "";
+  const statusText = state.connectError ?? state.connectMessage ?? "";
+
   root.innerHTML = `
     <div><span>SSID</span><strong>${escapeHtml(network.ssid)}</strong></div>
     <div><span>BSSID</span><strong>${escapeHtml(network.bssid)}</strong></div>
@@ -415,7 +449,176 @@ function renderSelectedDetail(network?: WifiNetwork): void {
     <div><span>安全</span><strong>${escapeHtml(network.security)}</strong></div>
     <div><span>信号质量</span><strong>${network.quality}%</strong></div>
     <div><span>连接状态</span><strong>${network.isConnected ? "当前连接" : "未连接"}</strong></div>
+    <div class="selected-action">
+      <button id="connectNetworkBtn" class="button connect-button" type="button" ${connecting || !canConnect ? "disabled" : ""}>
+        <i data-lucide="key-round"></i>
+        <span>${connecting ? "连接中" : network.isConnected ? "重新连接" : "连接 WiFi"}</span>
+      </button>
+      <p class="connect-status ${statusClass}">${escapeHtml(statusText || connectHint(network))}</p>
+    </div>
   `;
+
+  root.querySelector<HTMLButtonElement>("#connectNetworkBtn")?.addEventListener("click", () => {
+    openConnectDialog(network);
+  });
+}
+
+function renderConnectDialog(): void {
+  const root = mustGet<HTMLDivElement>("connectDialogRoot");
+  const network = getDialogNetwork();
+
+  if (!network) {
+    root.innerHTML = "";
+    return;
+  }
+
+  const isOpen = isOpenNetwork(network);
+  const isEnterprise = isEnterpriseNetwork(network);
+  const connecting = state.connectingBssid === network.bssid;
+  const passwordLabel = isOpen ? "开放网络无需密码" : isEnterprise ? "企业 WiFi 密码" : "WiFi 密码";
+  const statusClass = state.connectError ? "error" : state.connectMessage ? "success" : "";
+  const statusText = state.connectError ?? state.connectMessage ?? connectHint(network);
+
+  root.innerHTML = `
+    <div class="modal-backdrop" role="presentation" data-close-dialog="true">
+      <section class="connect-modal" role="dialog" aria-modal="true" aria-labelledby="connectDialogTitle">
+        <header class="modal-head">
+          <div>
+            <p class="panel-label">连接网络</p>
+            <h2 id="connectDialogTitle">${escapeHtml(network.ssid)}</h2>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭" data-close-dialog="true">
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <div class="modal-network-summary">
+          <div><span>安全</span><strong>${escapeHtml(network.security)}</strong></div>
+          <div><span>频段</span><strong>${network.band}</strong></div>
+          <div><span>信号</span><strong>${network.signalDbm} dBm</strong></div>
+        </div>
+        <form id="connectForm" class="modal-form">
+          ${
+            isEnterprise
+              ? `<label class="password-field">
+                  <span>用户名</span>
+                  <input id="wifiUsername" type="text" autocomplete="username" placeholder="输入企业账号" value="${escapeAttr(state.connectDraftUsername)}" />
+                </label>`
+              : ""
+          }
+          <label class="password-field">
+            <span>密码</span>
+            <input id="wifiPassword" type="password" autocomplete="current-password" placeholder="${passwordLabel}" value="${escapeAttr(state.connectDraftPassword)}" ${isOpen ? "disabled" : ""} />
+          </label>
+          <p class="connect-status ${statusClass}">${escapeHtml(statusText)}</p>
+          <div class="modal-actions">
+            <button class="button" type="button" data-close-dialog="true">取消</button>
+            <button class="button primary connect-button" type="submit" ${connecting ? "disabled" : ""}>
+              <i data-lucide="key-round"></i>
+              <span>${connecting ? "连接中" : "连接"}</span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  `;
+
+  root.querySelectorAll<HTMLElement>("[data-close-dialog]").forEach((element) => {
+    element.addEventListener("click", (event) => {
+      if (event.target === element || element instanceof HTMLButtonElement) {
+        closeConnectDialog();
+      }
+    });
+  });
+  root.querySelector<HTMLInputElement>("#wifiUsername")?.focus();
+  if (!isEnterprise && !isOpen) {
+    root.querySelector<HTMLInputElement>("#wifiPassword")?.focus();
+  }
+  root.querySelector<HTMLFormElement>("#connectForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const username = root.querySelector<HTMLInputElement>("#wifiUsername")?.value ?? "";
+    const password = root.querySelector<HTMLInputElement>("#wifiPassword")?.value ?? "";
+    void connectSelectedNetwork(network, username, password);
+  });
+}
+
+function openConnectDialog(network: WifiNetwork): void {
+  if (!canConnectNetwork(network)) {
+    state.connectError = connectHint(network);
+    state.connectMessage = undefined;
+    render();
+    return;
+  }
+
+  state.connectDialogBssid = network.bssid;
+  state.connectDraftPassword = "";
+  state.connectDraftUsername = "";
+  state.connectError = undefined;
+  state.connectMessage = undefined;
+  render();
+}
+
+function closeConnectDialog(): void {
+  state.connectDialogBssid = undefined;
+  state.connectDraftPassword = "";
+  state.connectDraftUsername = "";
+  state.connectError = undefined;
+  render();
+}
+
+async function connectSelectedNetwork(network: WifiNetwork, username: string, password: string): Promise<void> {
+  const trimmedUsername = username.trim();
+  const trimmedPassword = password.trim();
+  state.connectDraftPassword = password;
+  state.connectDraftUsername = username;
+  if (isEnterpriseNetwork(network) && !trimmedUsername) {
+    state.connectError = "请输入企业 WiFi 用户名";
+    state.connectMessage = undefined;
+    render();
+    return;
+  }
+  if (!isOpenNetwork(network) && !trimmedPassword) {
+    state.connectError = "请输入 WiFi 密码";
+    state.connectMessage = undefined;
+    render();
+    return;
+  }
+
+  state.connectingBssid = network.bssid;
+  state.connectError = undefined;
+  state.connectMessage = undefined;
+  render();
+
+  try {
+    const result = await connectWifi(network, trimmedUsername, trimmedPassword);
+    state.connectMessage = result.message;
+    await runScan();
+    state.connectDialogBssid = undefined;
+    state.connectDraftPassword = "";
+    state.connectDraftUsername = "";
+  } catch (error) {
+    state.connectError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.connectingBssid = undefined;
+    render();
+  }
+}
+
+async function connectWifi(network: WifiNetwork, username: string, password: string): Promise<ConnectResult> {
+  if (isTauriRuntime()) {
+    return invoke<ConnectResult>("connect_wifi", {
+      ssid: network.ssid,
+      username: username || null,
+      password: password || null,
+      security: network.security,
+    });
+  }
+
+  await new Promise((resolve) => window.setTimeout(resolve, 520));
+  demoConnectedSsid = network.ssid;
+  return {
+    ssid: network.ssid,
+    message: `已发起连接 ${network.ssid}`,
+  };
 }
 
 function buildCurveSvg(points: HistoryPoint[]): string {
@@ -464,6 +667,11 @@ function getSelectedNetwork(): WifiNetwork | undefined {
   return networks.find((network) => network.bssid === state.selectedBssid) ?? networks[0];
 }
 
+function getDialogNetwork(): WifiNetwork | undefined {
+  const networks = state.scan?.networks ?? [];
+  return networks.find((network) => network.bssid === state.connectDialogBssid);
+}
+
 function getBusiestChannelLabel(channels: ChannelCongestion[]): string {
   const busiest = channels.reduce<ChannelCongestion | undefined>(
     (current, item) => (!current || item.loadScore > current.loadScore ? item : current),
@@ -483,6 +691,33 @@ function signalClass(dbm: number): string {
     return "fair";
   }
   return "poor";
+}
+
+function isOpenNetwork(network: WifiNetwork): boolean {
+  const security = network.security.toLowerCase();
+  return security === "--" || security.includes("open") || security.includes("none") || security.includes("无");
+}
+
+function isEnterpriseNetwork(network: WifiNetwork): boolean {
+  const security = network.security.toLowerCase();
+  return security.includes("enterprise") || security.includes("802.1x");
+}
+
+function canConnectNetwork(network: WifiNetwork): boolean {
+  return network.ssid !== "<hidden>" && !isEnterpriseNetwork(network);
+}
+
+function connectHint(network: WifiNetwork): string {
+  if (network.ssid === "<hidden>") {
+    return "隐藏网络请在系统 WiFi 设置中连接";
+  }
+  if (isEnterpriseNetwork(network)) {
+    return "企业认证 WiFi 请在系统 WiFi 设置中连接";
+  }
+  if (isOpenNetwork(network)) {
+    return "开放网络可直接连接";
+  }
+  return "连接会调用系统 WiFi 命令";
 }
 
 function loadClass(load: number): string {
@@ -526,13 +761,15 @@ function demoScan(): ScanResult {
   const now = new Date().toISOString();
   const jitter = () => Math.round((Math.random() - 0.5) * 8);
   const networks: WifiNetwork[] = [
-    makeDemo("Studio-5G", "8c:85:90:42:11:01", -49 + jitter(), 149, "WPA3", "5GHz", true),
+    makeDemo("Studio-5G", "8c:85:90:42:11:01", -49 + jitter(), 149, "WPA3", "5GHz", demoConnectedSsid === "Studio-5G"),
     makeDemo("Studio-IoT", "8c:85:90:42:11:02", -61 + jitter(), 6, "WPA2", "2.4GHz"),
     makeDemo("Neighbor-Living", "42:31:aa:09:c1:33", -72 + jitter(), 6, "WPA2", "2.4GHz"),
     makeDemo("CafeMesh", "00:25:9c:aa:78:2d", -67 + jitter(), 44, "WPA2", "5GHz"),
     makeDemo("Printer Setup", "c0:ff:ee:00:19:91", -82 + jitter(), 11, "Open", "2.4GHz"),
-    makeDemo("Office-Guest", "28:ef:01:dd:22:91", -58 + jitter(), 36, "WPA2", "5GHz"),
-  ].sort((a, b) => b.signalDbm - a.signalDbm);
+    makeDemo("Office-Guest", "28:ef:01:dd:22:91", -58 + jitter(), 36, "WPA2 Enterprise", "5GHz"),
+  ]
+    .map((network) => ({ ...network, isConnected: network.ssid === demoConnectedSsid }))
+    .sort((a, b) => b.signalDbm - a.signalDbm);
 
   const channels = buildDemoChannels(networks);
 

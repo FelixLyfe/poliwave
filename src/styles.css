@@ -205,9 +205,33 @@ h2 {
   animation: spin 1s linear infinite;
 }
 
+.connect-button:disabled {
+  cursor: not-allowed;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted-strong);
+  background: #17201c;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: var(--text);
+  border-color: rgb(46 230 166 / 0.42);
+  background: #1c2b25;
+}
+
 .button svg,
 .panel-head svg,
-.recommendation svg {
+.recommendation svg,
+.icon-button svg {
   width: 18px;
   height: 18px;
 }
@@ -717,6 +741,147 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+.selected-action {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: rgb(255 255 255 / 0.026);
+}
+
+.password-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.password-field span {
+  margin: 0;
+}
+
+.password-field input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: #111713;
+  outline: none;
+}
+
+.password-field input:focus {
+  border-color: rgb(46 230 166 / 0.68);
+}
+
+.password-field input:disabled {
+  color: var(--muted);
+  background: #151a17;
+}
+
+.connect-status {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connect-status.error {
+  color: #ffc8c3;
+}
+
+.connect-status.success {
+  color: #bff7dc;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgb(0 0 0 / 0.58);
+  backdrop-filter: blur(8px);
+}
+
+.connect-modal {
+  width: min(480px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.04), rgb(255 255 255 / 0.018)),
+    #121916;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.46);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgb(13 17 16 / 0.4);
+}
+
+.modal-network-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 14px 0;
+}
+
+.modal-network-summary div {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: rgb(255 255 255 / 0.026);
+}
+
+.modal-network-summary span,
+.modal-network-summary strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-network-summary span {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.modal-network-summary strong {
+  font-size: 12px;
+}
+
+.modal-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .empty-state {
   display: flex;
   align-items: center;
@@ -797,6 +962,15 @@ h2 {
 
   .selected-detail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .connect-status {
+    white-space: normal;
+  }
+
+  .selected-action,
+  .modal-network-summary {
+    grid-template-columns: 1fr;
   }
 
   .curve svg {

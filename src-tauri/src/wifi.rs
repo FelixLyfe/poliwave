@@ -1,6 +1,8 @@
 use chrono::Utc;
 use serde::Serialize;
 use std::collections::BTreeMap;
+#[cfg(target_os = "windows")]
+use std::fs;
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,6 +50,13 @@ pub struct ScanResult {
     pub recommendations: Vec<Recommendation>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectResult {
+    pub ssid: String,
+    pub message: String,
+}
+
 pub fn scan() -> Result<ScanResult, String> {
     let (source, raw) = scan_raw()?;
     let mut networks = parse_by_platform(&raw);
@@ -69,6 +78,197 @@ pub fn scan() -> Result<ScanResult, String> {
         channels,
         recommendations,
     })
+}
+
+pub fn connect(
+    ssid: String,
+    username: Option<String>,
+    password: Option<String>,
+    security: Option<String>,
+) -> Result<ConnectResult, String> {
+    let ssid = ssid.trim();
+    if ssid.is_empty() || ssid == "<hidden>" {
+        return Err("暂不支持连接隐藏 WiFi。".to_string());
+    }
+
+    let security = security.unwrap_or_else(|| "Unknown".to_string());
+    let username = username
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let password = password
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if !is_open_security(&security) && !is_enterprise_security(&security) && password.is_none() {
+        return Err("该 WiFi 需要密码。".to_string());
+    }
+
+    connect_by_platform(ssid, username.as_deref(), password.as_deref(), &security)?;
+
+    Ok(ConnectResult {
+        ssid: ssid.to_string(),
+        message: format!("已发起连接 {ssid}"),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn connect_by_platform(
+    ssid: &str,
+    username: Option<&str>,
+    password: Option<&str>,
+    security: &str,
+) -> Result<(), String> {
+    if is_enterprise_security(security) || username.is_some() {
+        return Err(
+            "macOS 的 networksetup 不支持传入企业 WiFi 用户名，请在系统 WiFi 设置中连接。"
+                .to_string(),
+        );
+    }
+
+    let device = macos_wifi_device().ok_or_else(|| "未找到 Wi-Fi 网卡。".to_string())?;
+    let mut args = vec!["-setairportnetwork", device.as_str(), ssid];
+    if let Some(password) = password {
+        args.push(password);
+    }
+    run_command("networksetup", &args).map(|_| ())
+}
+
+#[cfg(target_os = "windows")]
+fn connect_by_platform(
+    ssid: &str,
+    username: Option<&str>,
+    password: Option<&str>,
+    security: &str,
+) -> Result<(), String> {
+    if is_enterprise_security(security) || username.is_some() {
+        return Err("Windows 企业 WiFi 需要写入系统 802.1X 凭据，本版本暂不支持，请在系统 WiFi 设置中连接。".to_string());
+    }
+
+    if password.is_some() || is_open_security(security) {
+        let profile_path = write_windows_wifi_profile(ssid, password, security)?;
+        let path_string = profile_path.to_string_lossy().to_string();
+        let add_result = run_command(
+            "netsh",
+            &["wlan", "add", "profile", &format!("filename={path_string}")],
+        );
+        let _ = fs::remove_file(&profile_path);
+        add_result?;
+    }
+
+    run_command("netsh", &["wlan", "connect", &format!("name={ssid}")]).map(|_| ())
+}
+
+#[cfg(target_os = "linux")]
+fn connect_by_platform(
+    ssid: &str,
+    username: Option<&str>,
+    password: Option<&str>,
+    security: &str,
+) -> Result<(), String> {
+    let mut args = vec!["dev", "wifi", "connect", ssid];
+    if let Some(password) = password {
+        if is_enterprise_security(security) {
+            let username = username.ok_or_else(|| "该企业 WiFi 需要用户名。".to_string())?;
+            args.extend([
+                "wifi-sec.key-mgmt",
+                "wpa-eap",
+                "802-1x.eap",
+                "peap",
+                "802-1x.phase2-auth",
+                "mschapv2",
+                "802-1x.identity",
+                username,
+                "802-1x.password",
+                password,
+            ]);
+        } else {
+            args.push("password");
+            args.push(password);
+        }
+    }
+    run_command("nmcli", &args).map(|_| ())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn connect_by_platform(
+    _ssid: &str,
+    _username: Option<&str>,
+    _password: Option<&str>,
+    _security: &str,
+) -> Result<(), String> {
+    Err("WiFi connection is only implemented for macOS, Windows, and Linux.".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn write_windows_wifi_profile(
+    ssid: &str,
+    password: Option<&str>,
+    security: &str,
+) -> Result<std::path::PathBuf, String> {
+    let path = std::env::temp_dir().join(format!(
+        "wifi-analyzer-{}.xml",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    let profile = windows_wifi_profile_xml(ssid, password, security);
+    fs::write(&path, profile).map_err(|err| format!("写入 WiFi 配置失败: {err}"))?;
+    Ok(path)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_wifi_profile_xml(ssid: &str, password: Option<&str>, security: &str) -> String {
+    let ssid_hex = ssid
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<String>();
+    let security_xml = if let Some(password) = password {
+        let authentication = if security.to_ascii_lowercase().contains("wpa3") {
+            "WPA3SAE"
+        } else {
+            "WPA2PSK"
+        };
+        format!(
+            r#"      <authEncryption>
+        <authentication>{authentication}</authentication>
+        <encryption>AES</encryption>
+        <useOneX>false</useOneX>
+      </authEncryption>
+      <sharedKey>
+        <keyType>passPhrase</keyType>
+        <protected>false</protected>
+        <keyMaterial>{key}</keyMaterial>
+      </sharedKey>"#,
+            key = xml_escape(password),
+        )
+    } else {
+        r#"      <authEncryption>
+        <authentication>open</authentication>
+        <encryption>none</encryption>
+        <useOneX>false</useOneX>
+      </authEncryption>"#
+            .to_string()
+    };
+
+    format!(
+        r#"<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+  <name>{name}</name>
+  <SSIDConfig>
+    <SSID>
+      <hex>{ssid_hex}</hex>
+      <name>{name}</name>
+    </SSID>
+  </SSIDConfig>
+  <connectionType>ESS</connectionType>
+  <connectionMode>auto</connectionMode>
+  <MSM>
+    <security>
+{security_xml}
+    </security>
+  </MSM>
+</WLANProfile>
+"#,
+        name = xml_escape(ssid),
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -687,9 +887,21 @@ fn current_connected_ssid() -> Option<String> {
     parse_networksetup_current_ssid(&raw)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn current_connected_ssid() -> Option<String> {
     None
+}
+
+#[cfg(target_os = "windows")]
+fn current_connected_ssid() -> Option<String> {
+    let raw = run_command("netsh", &["wlan", "show", "interfaces"]).ok()?;
+    parse_netsh_current_ssid(&raw)
+}
+
+#[cfg(target_os = "linux")]
+fn current_connected_ssid() -> Option<String> {
+    let raw = run_command("nmcli", &["-t", "-f", "ACTIVE,SSID", "dev", "wifi", "list"]).ok()?;
+    parse_nmcli_current_ssid(&raw)
 }
 
 #[cfg(target_os = "macos")]
@@ -735,6 +947,30 @@ fn parse_networksetup_current_ssid(raw: &str) -> Option<String> {
         .split_once(": ")
         .map(|(_, ssid)| ssid.trim().to_string())
         .filter(|ssid| !ssid.is_empty())
+}
+
+fn parse_netsh_current_ssid(raw: &str) -> Option<String> {
+    raw.lines().find_map(|line| {
+        let trimmed = line.trim();
+        if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") {
+            value_after_colon(trimmed)
+                .map(str::to_string)
+                .filter(|ssid| !ssid.is_empty())
+        } else {
+            None
+        }
+    })
+}
+
+fn parse_nmcli_current_ssid(raw: &str) -> Option<String> {
+    raw.lines().find_map(|line| {
+        let parts = split_nmcli_line(line);
+        if parts.len() >= 2 && parts[0] == "yes" {
+            Some(parts[1].clone()).filter(|ssid| !ssid.is_empty())
+        } else {
+            None
+        }
+    })
 }
 
 trait WithFrequency {
@@ -799,6 +1035,28 @@ fn is_mac_address(value: &str) -> bool {
         && parts
             .iter()
             .all(|part| part.len() == 2 && part.chars().all(|ch| ch.is_ascii_hexdigit()))
+}
+
+fn is_open_security(security: &str) -> bool {
+    let normalized = security.to_ascii_lowercase();
+    normalized == "--"
+        || normalized.contains("open")
+        || normalized.contains("none")
+        || normalized.contains("无")
+}
+
+fn is_enterprise_security(security: &str) -> bool {
+    let normalized = security.to_ascii_lowercase();
+    normalized.contains("enterprise") || normalized.contains("802.1x")
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 fn synthetic_bssid(ssid: &str, channel: u16, salt: usize) -> String {
@@ -890,6 +1148,32 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].bssid, "aa:bb:cc:dd:ee:ff");
         assert_eq!(rows[0].signal_dbm, -53);
+    }
+
+    #[test]
+    fn parses_current_ssid_from_netsh_interfaces() {
+        let raw = r#"Name                   : Wi-Fi
+State                  : connected
+SSID                   : Studio-5G
+BSSID                  : aa:bb:cc:dd:ee:ff
+"#;
+
+        assert_eq!(parse_netsh_current_ssid(raw).as_deref(), Some("Studio-5G"));
+    }
+
+    #[test]
+    fn parses_current_ssid_from_nmcli_active_list() {
+        let raw = "no:Guest\\:Lobby\nyes:Studio\\:5G\n";
+
+        assert_eq!(parse_nmcli_current_ssid(raw).as_deref(), Some("Studio:5G"));
+    }
+
+    #[test]
+    fn escapes_xml_profile_values() {
+        assert_eq!(
+            xml_escape("A&B <Office> \"Main\" 'Key'"),
+            "A&amp;B &lt;Office&gt; &quot;Main&quot; &apos;Key&apos;"
+        );
     }
 
     #[cfg(target_os = "macos")]
