@@ -10,12 +10,13 @@ use tauri::{
 const SHOW_PANEL_MENU_ID: &str = "show_control_panel";
 const QUIT_MENU_ID: &str = "quit";
 
-#[tauri::command]
+// 标记 async 让命令在独立线程执行：扫描与连接确认轮询都是阻塞调用，不能占用主线程。
+#[tauri::command(async)]
 fn scan_wifi() -> Result<wifi::ScanResult, String> {
     wifi::scan()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn connect_wifi(
     ssid: String,
     username: Option<String>,
@@ -94,7 +95,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                hide_control_panel(&window.app_handle());
+                hide_control_panel(window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![scan_wifi, connect_wifi])
