@@ -102,12 +102,14 @@ describe("network connectability", () => {
 
   it("blocks hidden and enterprise networks from in-app connect", () => {
     expect(canConnectNetwork(makeNetwork())).toBe(true);
+    expect(canConnectNetwork(makeNetwork({ isConnected: true }))).toBe(false);
     expect(canConnectNetwork(makeNetwork({ ssid: "<hidden>" }))).toBe(false);
     expect(canConnectNetwork(makeNetwork({ isEnterprise: true }))).toBe(false);
     expect(canConnectNetwork(makeNetwork({ isOpen: true }))).toBe(true);
   });
 
   it("builds connect hints from backend flags", () => {
+    expect(connectHint(makeNetwork({ isConnected: true }))).toContain("当前已连接");
     expect(connectHint(makeNetwork({ ssid: "<hidden>" }))).toContain("隐藏网络");
     expect(connectHint(makeNetwork({ isEnterprise: true }))).toContain("企业认证");
     expect(connectHint(makeNetwork({ isOpen: true }))).toContain("开放网络");

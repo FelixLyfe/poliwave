@@ -84,10 +84,13 @@ export function isHiddenNetwork(network: WifiNetwork): boolean {
 }
 
 export function canConnectNetwork(network: WifiNetwork): boolean {
-  return !isHiddenNetwork(network) && !network.isEnterprise;
+  return !network.isConnected && !isHiddenNetwork(network) && !network.isEnterprise;
 }
 
 export function connectHint(network: WifiNetwork): string {
+  if (network.isConnected) {
+    return "当前已连接";
+  }
   if (isHiddenNetwork(network)) {
     return "隐藏网络请在系统 WiFi 设置中连接";
   }

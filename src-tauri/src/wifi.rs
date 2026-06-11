@@ -109,6 +109,14 @@ pub fn connect(
         return Err("该 WiFi 需要密码。".to_string());
     }
 
+    if current_connected_ssid().as_deref() == Some(ssid) {
+        return Ok(ConnectResult {
+            ssid: ssid.to_string(),
+            message: format!("当前已连接 {ssid}"),
+            confirmed: true,
+        });
+    }
+
     connect_by_platform(ssid, username.as_deref(), password.as_deref(), &security)?;
 
     let confirmed = confirm_connection(ssid);
@@ -394,6 +402,7 @@ fn parse_by_platform(_raw: &str) -> Vec<WifiNetwork> {
     Vec::new()
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn parse_airport(raw: &str) -> Vec<WifiNetwork> {
     raw.lines()
         .skip(1)
@@ -1061,6 +1070,7 @@ fn value_after_colon(line: &str) -> Option<&str> {
     line.split_once(':').map(|(_, value)| value.trim())
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn parse_signal_dbm(value: &str) -> Option<i32> {
     value
         .split_whitespace()
@@ -1104,6 +1114,7 @@ fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn synthetic_bssid(ssid: &str, channel: u16, salt: usize) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for byte in ssid
