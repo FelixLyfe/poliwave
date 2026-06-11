@@ -311,7 +311,7 @@ function renderSelectedDetail(state: AppState, network: WifiNetwork | undefined,
     <div class="selected-action">
       <button id="connectNetworkBtn" class="button connect-button" type="button" ${connecting || !canConnect ? "disabled" : ""}>
         <i data-lucide="key-round"></i>
-        <span>${connecting ? "连接中" : network.isConnected ? "重新连接" : "连接 WiFi"}</span>
+        <span>${connecting ? "连接中" : network.isConnected ? "已连接" : "连接 WiFi"}</span>
       </button>
       <p class="connect-status ${statusClass}">${escapeHtml(statusText || connectHint(network))}</p>
     </div>
