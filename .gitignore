@@ -4,8 +4,8 @@ src-tauri/target
 src-tauri/gen
 release
 .ai-tracker
-layout-before-*.png
-layout-after-*.png
-wifi-analyzer-mobile.png
+outputs
+poster
+trd
 *.log
 .DS_Store
