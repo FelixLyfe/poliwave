@@ -4,6 +4,10 @@ use std::collections::BTreeMap;
 #[cfg(target_os = "windows")]
 use std::fs;
 use std::process::Command;
+use std::time::Duration;
+
+const CONNECT_CONFIRM_ATTEMPTS: u32 = 12;
+const CONNECT_CONFIRM_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +20,8 @@ pub struct WifiNetwork {
     pub frequency_mhz: u16,
     pub band: String,
     pub security: String,
+    pub is_open: bool,
+    pub is_enterprise: bool,
     pub is_connected: bool,
 }
 
@@ -55,6 +61,7 @@ pub struct ScanResult {
 pub struct ConnectResult {
     pub ssid: String,
     pub message: String,
+    pub confirmed: bool,
 }
 
 pub fn scan() -> Result<ScanResult, String> {
@@ -104,10 +111,33 @@ pub fn connect(
 
     connect_by_platform(ssid, username.as_deref(), password.as_deref(), &security)?;
 
+    let confirmed = confirm_connection(ssid);
+    let message = if confirmed {
+        format!("已连接 {ssid}")
+    } else {
+        format!(
+            "已向系统发起连接 {ssid}，但 {CONNECT_CONFIRM_ATTEMPTS} 秒内未确认成功，请检查密码或在系统 WiFi 设置中查看。"
+        )
+    };
+
     Ok(ConnectResult {
         ssid: ssid.to_string(),
-        message: format!("已发起连接 {ssid}"),
+        message,
+        confirmed,
     })
+}
+
+/// 连接发起后轮询系统当前 SSID，确认连接是否真正建立。
+fn confirm_connection(ssid: &str) -> bool {
+    for attempt in 0..CONNECT_CONFIRM_ATTEMPTS {
+        if attempt > 0 {
+            std::thread::sleep(CONNECT_CONFIRM_INTERVAL);
+        }
+        if current_connected_ssid().as_deref() == Some(ssid) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(target_os = "macos")]
@@ -491,6 +521,9 @@ fn is_system_profiler_section_boundary(trimmed: &str) -> bool {
     )
 }
 
+// 以下各平台解析函数在所有平台编译，以便单元测试跨平台覆盖；
+// 仅在未使用的平台上豁免 dead_code。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn parse_netsh(raw: &str) -> Vec<WifiNetwork> {
     let mut networks = Vec::new();
     let mut current_ssid = String::new();
@@ -535,7 +568,7 @@ fn parse_netsh(raw: &str) -> Vec<WifiNetwork> {
             current_quality = value_after_colon(trimmed)
                 .and_then(|value| value.trim_end_matches('%').trim().parse::<u8>().ok());
         } else if trimmed.starts_with("Channel") || trimmed.starts_with("频道") {
-            current_channel = value_after_colon(trimmed).and_then(|value| parse_channel(value));
+            current_channel = value_after_colon(trimmed).and_then(parse_channel);
         }
     }
 
@@ -551,6 +584,7 @@ fn parse_netsh(raw: &str) -> Vec<WifiNetwork> {
     networks
 }
 
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn push_netsh_network(
     networks: &mut Vec<WifiNetwork>,
     ssid: &str,
@@ -576,6 +610,7 @@ fn push_netsh_network(
     ));
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_nmcli(raw: &str) -> Vec<WifiNetwork> {
     raw.lines()
         .filter_map(|line| {
@@ -604,6 +639,7 @@ fn parse_nmcli(raw: &str) -> Vec<WifiNetwork> {
         .collect()
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_iw(raw: &str) -> Vec<WifiNetwork> {
     let mut networks = Vec::new();
     let mut bssid = String::new();
@@ -673,6 +709,7 @@ fn parse_iw(raw: &str) -> Vec<WifiNetwork> {
     networks
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn push_iw_network(
     networks: &mut Vec<WifiNetwork>,
     ssid: &str,
@@ -842,6 +879,11 @@ fn make_network(
 ) -> WifiNetwork {
     let frequency_mhz = channel_to_frequency(channel);
     let band = band_from_frequency(frequency_mhz);
+    let security = if security.is_empty() {
+        "Unknown".to_string()
+    } else {
+        security
+    };
 
     WifiNetwork {
         ssid: if ssid.is_empty() {
@@ -855,11 +897,9 @@ fn make_network(
         channel,
         frequency_mhz,
         band,
-        security: if security.is_empty() {
-            "Unknown".to_string()
-        } else {
-            security
-        },
+        is_open: is_open_security(&security),
+        is_enterprise: is_enterprise_security(&security),
+        security,
         is_connected: false,
     }
 }
@@ -949,6 +989,7 @@ fn parse_networksetup_current_ssid(raw: &str) -> Option<String> {
         .filter(|ssid| !ssid.is_empty())
 }
 
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn parse_netsh_current_ssid(raw: &str) -> Option<String> {
     raw.lines().find_map(|line| {
         let trimmed = line.trim();
@@ -962,6 +1003,7 @@ fn parse_netsh_current_ssid(raw: &str) -> Option<String> {
     })
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_nmcli_current_ssid(raw: &str) -> Option<String> {
     raw.lines().find_map(|line| {
         let parts = split_nmcli_line(line);
@@ -973,6 +1015,7 @@ fn parse_nmcli_current_ssid(raw: &str) -> Option<String> {
     })
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 trait WithFrequency {
     fn with_frequency(self, frequency_mhz: Option<u16>) -> Self;
 }
@@ -990,6 +1033,7 @@ impl WithFrequency for WifiNetwork {
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn split_nmcli_line(line: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
@@ -1050,6 +1094,7 @@ fn is_enterprise_security(security: &str) -> bool {
     normalized.contains("enterprise") || normalized.contains("802.1x")
 }
 
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -1082,14 +1127,16 @@ fn synthetic_bssid(ssid: &str, channel: u16, salt: usize) -> String {
 
 fn channel_to_frequency(channel: u16) -> u16 {
     match channel {
+        // 1..=13 与 6GHz 信道号重叠，缺少频段上下文时优先按 2.4GHz 解释
         1..=13 => 2407 + channel * 5,
         14 => 2484,
         32..=177 => 5000 + channel * 5,
-        1..=233 => 5950 + channel * 5,
+        15..=31 | 178..=233 => 5950 + channel * 5,
         _ => 0,
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn frequency_to_channel(frequency_mhz: u16) -> u16 {
     match frequency_mhz {
         2412..=2472 => (frequency_mhz - 2407) / 5,
@@ -1113,6 +1160,7 @@ fn dbm_to_quality(dbm: i32) -> u8 {
     (((dbm + 100) * 2).clamp(0, 100)) as u8
 }
 
+#[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
 fn quality_to_dbm(quality: u8) -> i32 {
     (i32::from(quality) / 2) - 100
 }
@@ -1256,6 +1304,62 @@ Ethernet Address: d0:11:e5:03:28:84
             "expected at least one WiFi network from {}",
             result.source
         );
+    }
+
+    #[test]
+    fn marks_open_and_enterprise_security_flags() {
+        let open = make_network(
+            "Cafe".to_string(),
+            "00:00:00:00:00:01".to_string(),
+            -60,
+            6,
+            "Open".to_string(),
+            None,
+        );
+        assert!(open.is_open);
+        assert!(!open.is_enterprise);
+
+        let enterprise = make_network(
+            "Corp".to_string(),
+            "00:00:00:00:00:02".to_string(),
+            -60,
+            36,
+            "WPA2 Enterprise".to_string(),
+            None,
+        );
+        assert!(!enterprise.is_open);
+        assert!(enterprise.is_enterprise);
+
+        let dot1x = make_network(
+            "Corp2".to_string(),
+            "00:00:00:00:00:03".to_string(),
+            -60,
+            36,
+            "WPA2 802.1X".to_string(),
+            None,
+        );
+        assert!(dot1x.is_enterprise);
+
+        let psk = make_network(
+            "Home".to_string(),
+            "00:00:00:00:00:04".to_string(),
+            -60,
+            149,
+            "WPA2(PSK/AES/AES)".to_string(),
+            None,
+        );
+        assert!(!psk.is_open);
+        assert!(!psk.is_enterprise);
+
+        let dash = make_network(
+            "FreeWifi".to_string(),
+            "00:00:00:00:00:05".to_string(),
+            -60,
+            1,
+            "--".to_string(),
+            None,
+        );
+        assert!(dash.is_open);
     }
 
     #[test]
