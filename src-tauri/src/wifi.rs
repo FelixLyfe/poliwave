@@ -325,8 +325,32 @@ fn scan_raw() -> Result<(String, String), String> {
 
 #[cfg(target_os = "windows")]
 fn scan_raw() -> Result<(String, String), String> {
-    run_command("netsh", &["wlan", "show", "networks", "mode=bssid"])
-        .map(|raw| ("netsh wlan show networks mode=bssid".to_string(), raw))
+    let bssid_result = run_command("netsh", &["wlan", "show", "networks", "mode=bssid"]);
+    if let Ok(raw) = bssid_result.as_ref() {
+        return Ok((
+            "netsh wlan show networks mode=bssid".to_string(),
+            raw.clone(),
+        ));
+    }
+
+    let basic_result = run_command("netsh", &["wlan", "show", "networks"]);
+    if let Ok(raw) = basic_result.as_ref() {
+        return Ok(("netsh wlan show networks".to_string(), raw.clone()));
+    }
+
+    let interfaces_result = run_command("netsh", &["wlan", "show", "interfaces"]);
+    if let Ok(raw) = interfaces_result.as_ref() {
+        return Ok(("netsh wlan show interfaces".to_string(), raw.clone()));
+    }
+
+    Err(format!(
+        "{}; fallback netsh wlan show networks failed: {}; fallback netsh wlan show interfaces failed: {}",
+        bssid_result.err().unwrap_or_else(|| "unknown netsh failure".to_string()),
+        basic_result.err().unwrap_or_else(|| "unknown netsh failure".to_string()),
+        interfaces_result
+            .err()
+            .unwrap_or_else(|| "unknown netsh failure".to_string())
+    ))
 }
 
 #[cfg(target_os = "linux")]
@@ -363,9 +387,14 @@ fn run_command(program: &str, args: &[&str]) -> Result<String, String> {
         .map_err(|err| format!("Failed to run {program}: {err}"))?;
 
     if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
-            format!("{program} exited with status {}", output.status)
+            if stdout.is_empty() {
+                format!("{program} exited with status {}", output.status)
+            } else {
+                stdout
+            }
         } else {
             stderr
         });
@@ -385,7 +414,7 @@ fn parse_by_platform(raw: &str) -> Vec<WifiNetwork> {
 
 #[cfg(target_os = "windows")]
 fn parse_by_platform(raw: &str) -> Vec<WifiNetwork> {
-    parse_netsh(raw)
+    parse_windows_netsh(raw)
 }
 
 #[cfg(target_os = "linux")]
@@ -533,6 +562,31 @@ fn is_system_profiler_section_boundary(trimmed: &str) -> bool {
 // 以下各平台解析函数在所有平台编译，以便单元测试跨平台覆盖；
 // 仅在未使用的平台上豁免 dead_code。
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_windows_netsh(raw: &str) -> Vec<WifiNetwork> {
+    if looks_like_netsh_interfaces(raw) {
+        let interfaces = parse_netsh_interfaces(raw);
+        if !interfaces.is_empty() {
+            return interfaces;
+        }
+    }
+
+    let bssid_networks = parse_netsh(raw);
+    if !bssid_networks.is_empty() {
+        return bssid_networks;
+    }
+
+    parse_netsh_ssid_only(raw)
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn looks_like_netsh_interfaces(raw: &str) -> bool {
+    raw.lines().any(|line| {
+        let trimmed = line.trim();
+        (trimmed.starts_with("State") || trimmed.starts_with("状态")) && trimmed.contains(':')
+    })
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn parse_netsh(raw: &str) -> Vec<WifiNetwork> {
     let mut networks = Vec::new();
     let mut current_ssid = String::new();
@@ -591,6 +645,160 @@ fn parse_netsh(raw: &str) -> Vec<WifiNetwork> {
     );
 
     networks
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_netsh_interfaces(raw: &str) -> Vec<WifiNetwork> {
+    let mut networks = Vec::new();
+    let mut current_ssid = String::new();
+    let mut current_security = String::from("Unknown");
+    let mut current_bssid = String::new();
+    let mut current_quality: Option<u8> = None;
+    let mut current_channel: Option<u16> = None;
+    let mut is_connected = false;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+
+        if (trimmed.starts_with("Name") || trimmed.starts_with("名称")) && trimmed.contains(':') {
+            push_netsh_interface_network(
+                &mut networks,
+                &current_ssid,
+                &current_security,
+                &current_bssid,
+                current_quality,
+                current_channel,
+                is_connected,
+            );
+            current_ssid.clear();
+            current_security = String::from("Unknown");
+            current_bssid.clear();
+            current_quality = None;
+            current_channel = None;
+            is_connected = false;
+        } else if trimmed.starts_with("State") || trimmed.starts_with("状态") {
+            is_connected = value_after_colon(trimmed)
+                .map(is_connected_netsh_state)
+                .unwrap_or(false);
+        } else if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") {
+            current_ssid = value_after_colon(trimmed).unwrap_or_default().to_string();
+        } else if trimmed.starts_with("Authentication") || trimmed.starts_with("身份验证") {
+            current_security = value_after_colon(trimmed).unwrap_or("Unknown").to_string();
+        } else if trimmed.starts_with("BSSID") {
+            current_bssid = value_after_colon(trimmed)
+                .unwrap_or_default()
+                .to_lowercase();
+        } else if trimmed.starts_with("Signal") || trimmed.starts_with("信号") {
+            current_quality = value_after_colon(trimmed)
+                .and_then(|value| value.trim_end_matches('%').trim().parse::<u8>().ok());
+        } else if trimmed.starts_with("Channel") || trimmed.starts_with("频道") {
+            current_channel = value_after_colon(trimmed).and_then(parse_channel);
+        }
+    }
+
+    push_netsh_interface_network(
+        &mut networks,
+        &current_ssid,
+        &current_security,
+        &current_bssid,
+        current_quality,
+        current_channel,
+        is_connected,
+    );
+
+    networks
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn push_netsh_interface_network(
+    networks: &mut Vec<WifiNetwork>,
+    ssid: &str,
+    security: &str,
+    bssid: &str,
+    quality: Option<u8>,
+    channel: Option<u16>,
+    is_connected: bool,
+) {
+    if !is_connected {
+        return;
+    }
+
+    let before = networks.len();
+    push_netsh_network(networks, ssid, security, bssid, quality, channel);
+    if networks.len() > before {
+        if let Some(network) = networks.last_mut() {
+            network.is_connected = true;
+        }
+    }
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_netsh_ssid_only(raw: &str) -> Vec<WifiNetwork> {
+    let mut networks = Vec::new();
+    let mut current_ssid = String::new();
+    let mut current_security = String::from("Unknown");
+    let mut current_has_bssid = false;
+    let mut salt = 0usize;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("SSID ") && trimmed.contains(':') {
+            push_netsh_ssid_only_network(
+                &mut networks,
+                &current_ssid,
+                &current_security,
+                current_has_bssid,
+                salt,
+            );
+            salt += 1;
+            current_ssid = value_after_colon(trimmed).unwrap_or_default().to_string();
+            current_security = String::from("Unknown");
+            current_has_bssid = false;
+        } else if trimmed.starts_with("BSSID ") && trimmed.contains(':') {
+            current_has_bssid = true;
+        } else if trimmed.starts_with("Authentication") || trimmed.starts_with("身份验证") {
+            current_security = value_after_colon(trimmed).unwrap_or("Unknown").to_string();
+        }
+    }
+
+    push_netsh_ssid_only_network(
+        &mut networks,
+        &current_ssid,
+        &current_security,
+        current_has_bssid,
+        salt,
+    );
+
+    networks
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn push_netsh_ssid_only_network(
+    networks: &mut Vec<WifiNetwork>,
+    ssid: &str,
+    security: &str,
+    has_bssid: bool,
+    salt: usize,
+) {
+    if ssid.is_empty() || has_bssid {
+        return;
+    }
+
+    networks.push(make_network(
+        ssid.to_string(),
+        synthetic_bssid(ssid, 0, salt),
+        -100,
+        0,
+        security.to_string(),
+        Some(0),
+    ));
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn is_connected_netsh_state(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    normalized == "connected" || value.trim() == "已连接"
 }
 
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -1218,6 +1426,86 @@ BSSID                  : aa:bb:cc:dd:ee:ff
 "#;
 
         assert_eq!(parse_netsh_current_ssid(raw).as_deref(), Some("Studio-5G"));
+    }
+
+    #[test]
+    fn parses_windows_bssid_scan_rows() {
+        let raw = r#"Interface name : Wi-Fi
+There are 1 networks currently visible.
+
+SSID 1 : Studio-5G
+    Network type            : Infrastructure
+    Authentication          : WPA2-Personal
+    Encryption              : CCMP
+    BSSID 1                 : aa:bb:cc:dd:ee:ff
+         Signal             : 86%
+         Radio type         : 802.11ac
+         Channel            : 149
+"#;
+
+        let rows = parse_windows_netsh(raw);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ssid, "Studio-5G");
+        assert_eq!(rows[0].bssid, "aa:bb:cc:dd:ee:ff");
+        assert_eq!(rows[0].quality, 86);
+        assert_eq!(rows[0].channel, 149);
+        assert_eq!(rows[0].band, "5GHz");
+        assert!(!rows[0].is_connected);
+    }
+
+    #[test]
+    fn parses_windows_interfaces_as_connected_fallback() {
+        let raw = r#"Name                   : Wi-Fi
+Description            : Wireless Adapter
+GUID                   : 00000000-0000-0000-0000-000000000000
+Physical address       : 11:22:33:44:55:66
+State                  : connected
+SSID                   : Studio-5G
+BSSID                  : aa:bb:cc:dd:ee:ff
+Network type           : Infrastructure
+Radio type             : 802.11ac
+Authentication         : WPA2-Personal
+Cipher                 : CCMP
+Channel                : 149
+Signal                 : 86%
+"#;
+
+        let rows = parse_windows_netsh(raw);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ssid, "Studio-5G");
+        assert_eq!(rows[0].bssid, "aa:bb:cc:dd:ee:ff");
+        assert_eq!(rows[0].quality, 86);
+        assert_eq!(rows[0].channel, 149);
+        assert!(rows[0].is_connected);
+    }
+
+    #[test]
+    fn parses_windows_ssid_only_scan_rows_when_bssid_mode_is_unavailable() {
+        let raw = r#"Interface name : Wi-Fi
+There are 2 networks currently visible.
+
+SSID 1 : Studio-5G
+    Network type            : Infrastructure
+    Authentication          : WPA2-Personal
+    Encryption              : CCMP
+
+SSID 2 : Cafe Guest
+    Network type            : Infrastructure
+    Authentication          : Open
+    Encryption              : None
+"#;
+
+        let rows = parse_windows_netsh(raw);
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].ssid, "Studio-5G");
+        assert_eq!(rows[0].quality, 0);
+        assert_eq!(rows[0].channel, 0);
+        assert!(is_mac_address(&rows[0].bssid));
+        assert_eq!(rows[1].ssid, "Cafe Guest");
+        assert!(rows[1].is_open);
     }
 
     #[test]
