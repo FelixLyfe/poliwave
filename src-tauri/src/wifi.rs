@@ -314,7 +314,8 @@ fn scan_raw() -> Result<(String, String), String> {
     let airport =
         "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
     if let Ok(raw) = run_command(airport, &["-s"]) {
-        if !parse_airport(&raw).is_empty() {
+        let networks = parse_airport(&raw);
+        if !networks.is_empty() && has_displayable_ssid(&networks) {
             return Ok(("airport -s".to_string(), raw));
         }
     }
@@ -1279,6 +1280,19 @@ fn value_after_colon(line: &str) -> Option<&str> {
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn has_displayable_ssid(networks: &[WifiNetwork]) -> bool {
+    networks
+        .iter()
+        .any(|network| !is_non_displayable_ssid(&network.ssid))
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn is_non_displayable_ssid(ssid: &str) -> bool {
+    let normalized = ssid.trim().to_ascii_lowercase();
+    normalized.is_empty() || normalized == "<hidden>" || normalized == "<redacted>"
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn parse_signal_dbm(value: &str) -> Option<i32> {
     value
         .split_whitespace()
@@ -1404,6 +1418,18 @@ mod tests {
         assert_eq!(rows[0].ssid, "Office Main");
         assert_eq!(rows[0].band, "5GHz");
         assert_eq!(rows[1].channel, 6);
+    }
+
+    #[test]
+    fn treats_redacted_airport_rows_as_not_displayable() {
+        let raw = "                            SSID BSSID             RSSI CHANNEL HT CC SECURITY (auth/unicast/group)\n\
+                       <redacted> aa:bb:cc:dd:ee:ff -48  149     Y  US WPA2(PSK/AES/AES)\n\
+                         <hidden> 11:22:33:44:55:66 -79  6       Y  US WPA(PSK/TKIP/TKIP)\n";
+
+        let rows = parse_airport(raw);
+
+        assert_eq!(rows.len(), 2);
+        assert!(!has_displayable_ssid(&rows));
     }
 
     #[test]
