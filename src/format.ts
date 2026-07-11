@@ -53,6 +53,9 @@ export function formatTime(value: string): string {
 }
 
 export function formatSourceLabel(source: string): string {
+  if (source === "CoreWLAN") {
+    return "macOS WiFi";
+  }
   if (source.startsWith("system_profiler")) {
     return "系统 WiFi 信息";
   }

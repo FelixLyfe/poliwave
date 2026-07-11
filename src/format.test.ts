@@ -54,6 +54,7 @@ describe("loadClass", () => {
 
 describe("formatSourceLabel", () => {
   it("maps known scan sources to friendly labels", () => {
+    expect(formatSourceLabel("CoreWLAN")).toBe("macOS WiFi");
     expect(formatSourceLabel("system_profiler SPAirPortDataType")).toBe("系统 WiFi 信息");
     expect(formatSourceLabel("airport -s")).toBe("airport 扫描");
     expect(formatSourceLabel("netsh wlan show networks mode=bssid")).toBe("Windows WiFi");

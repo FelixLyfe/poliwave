@@ -29,6 +29,12 @@ function makeScan(networks: WifiNetwork[], scannedAt = "2026-06-11T08:00:00Z"): 
   };
 }
 
+describe("createInitialState", () => {
+  it("enables five-second auto scanning by default", () => {
+    expect(createInitialState().autoScan).toBe(true);
+  });
+});
+
 describe("ingestHistory", () => {
   it("appends one point per network per scan", () => {
     const state = createInitialState();

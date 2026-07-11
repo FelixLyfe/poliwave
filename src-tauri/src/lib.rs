@@ -57,6 +57,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            wifi::request_location_authorization();
+
             let show_panel =
                 MenuItemBuilder::with_id(SHOW_PANEL_MENU_ID, "显示控制面板").build(app)?;
             let quit = MenuItemBuilder::with_id(QUIT_MENU_ID, "退出").build(app)?;

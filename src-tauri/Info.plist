@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSLocationUsageDescription</key>
+  <string>用于读取附近 WiFi 的真实名称和信号信息，不会收集或保存您的位置。</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>用于读取附近 WiFi 的真实名称和信号信息，不会收集或保存您的位置。</string>
+</dict>
+</plist>

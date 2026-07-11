@@ -17,7 +17,7 @@
 
 ## 运行时扫描来源
 
-- macOS：`airport -s`，并在新版 macOS 上回退到 `system_profiler SPAirPortDataType`
+- macOS：使用 CoreWLAN，并请求定位服务权限以读取真实 SSID；旧版系统命令仅作为兼容回退
 - Windows：`netsh wlan show networks mode=bssid`
 - Linux：`nmcli dev wifi list --rescan yes`，并在失败时回退到 `iw dev scan`
 
