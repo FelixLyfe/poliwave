@@ -17,7 +17,7 @@ Tauri + Rust desktop WiFi signal analyzer MVP.
 
 ## Runtime scanning sources
 
-- macOS: `airport -s`, with `system_profiler SPAirPortDataType` fallback on newer macOS releases
+- macOS: CoreWLAN, with a Location Services prompt so macOS can return real SSIDs; legacy system commands are retained as a fallback
 - Windows: `netsh wlan show networks mode=bssid`
 - Linux: `nmcli dev wifi list --rescan yes`, with `iw dev scan` fallback
 

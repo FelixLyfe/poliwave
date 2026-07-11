@@ -6,6 +6,11 @@ use std::fs;
 use std::process::Command;
 use std::time::Duration;
 
+#[cfg(target_os = "macos")]
+use objc2_core_location::CLLocationManager;
+#[cfg(target_os = "macos")]
+use objc2_core_wlan::{CWNetwork, CWSecurity, CWWiFiClient};
+
 const CONNECT_CONFIRM_ATTEMPTS: u32 = 12;
 const CONNECT_CONFIRM_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -65,8 +70,15 @@ pub struct ConnectResult {
 }
 
 pub fn scan() -> Result<ScanResult, String> {
-    let (source, raw) = scan_raw()?;
-    let mut networks = parse_by_platform(&raw);
+    #[cfg(target_os = "macos")]
+    let (source, mut networks) = scan_macos()?;
+
+    #[cfg(not(target_os = "macos"))]
+    let (source, mut networks) = {
+        let (source, raw) = scan_raw()?;
+        (source, parse_by_platform(&raw))
+    };
+
     mark_current_connection(&mut networks);
 
     networks.sort_by(|a, b| {
@@ -85,6 +97,16 @@ pub fn scan() -> Result<ScanResult, String> {
         channels,
         recommendations,
     })
+}
+
+#[cfg(target_os = "macos")]
+pub fn request_location_authorization() {
+    // The prompt is asynchronous, so retain the manager for the process lifetime.
+    unsafe {
+        let manager = CLLocationManager::new();
+        manager.requestWhenInUseAuthorization();
+        std::mem::forget(manager);
+    }
 }
 
 pub fn connect(
@@ -307,6 +329,116 @@ fn windows_wifi_profile_xml(ssid: &str, password: Option<&str>, security: &str) 
 "#,
         name = xml_escape(ssid),
     )
+}
+
+#[cfg(target_os = "macos")]
+fn scan_macos() -> Result<(String, Vec<WifiNetwork>), String> {
+    let core_wlan_error = match scan_core_wlan() {
+        Ok(networks) if has_displayable_ssid(&networks) => {
+            return Ok(("CoreWLAN".to_string(), networks));
+        }
+        Ok(_) => "CoreWLAN 未返回可显示的 WiFi 名称，请允许应用访问定位服务。".to_string(),
+        Err(error) => error,
+    };
+
+    let (source, raw) = scan_raw().map_err(|fallback_error| {
+        format!("{core_wlan_error} 兼容扫描也失败：{fallback_error}")
+    })?;
+    let networks: Vec<_> = parse_by_platform(&raw)
+        .into_iter()
+        .filter(|network| !is_non_displayable_ssid(&network.ssid))
+        .collect();
+
+    if networks.is_empty() {
+        Err(format!(
+            "{core_wlan_error} 请在系统设置 > 隐私与安全性 > 定位服务中允许 WiFi Analyzer。"
+        ))
+    } else {
+        Ok((source, networks))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn scan_core_wlan() -> Result<Vec<WifiNetwork>, String> {
+    unsafe {
+        let client = CWWiFiClient::sharedWiFiClient();
+        let interface = client
+            .interface()
+            .ok_or_else(|| "CoreWLAN 未找到 Wi-Fi 网卡。".to_string())?;
+        let current_ssid = interface.ssid().map(|value| value.to_string());
+        let current_bssid = interface
+            .bssid()
+            .map(|value| value.to_string().to_ascii_lowercase());
+        let scanned = interface
+            .scanForNetworksWithSSID_error(None)
+            .map_err(|error| format!("CoreWLAN 扫描失败：{error}"))?;
+
+        let mut networks = Vec::with_capacity(scanned.len());
+        for network in &*scanned {
+            let Some(ssid) = network.ssid().map(|value| value.to_string()) else {
+                continue;
+            };
+            if is_non_displayable_ssid(&ssid) {
+                continue;
+            }
+
+            let channel = network
+                .wlanChannel()
+                .map(|value| value.channelNumber().clamp(0, u16::MAX as isize) as u16)
+                .unwrap_or(0);
+            let bssid = network
+                .bssid()
+                .map(|value| value.to_string().to_ascii_lowercase())
+                .filter(|value| is_mac_address(value))
+                .unwrap_or_else(|| synthetic_bssid(&ssid, channel, networks.len()));
+            let mut parsed = make_network(
+                ssid.clone(),
+                bssid.clone(),
+                network.rssiValue().clamp(i32::MIN as isize, i32::MAX as isize) as i32,
+                channel,
+                core_wlan_security(&network),
+                None,
+            );
+            parsed.is_connected = current_bssid.as_deref() == Some(&bssid)
+                || current_ssid.as_deref() == Some(&ssid);
+            networks.push(parsed);
+        }
+
+        Ok(networks)
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn core_wlan_security(network: &CWNetwork) -> String {
+    let candidates = [
+        (CWSecurity::WPA3Enterprise, "WPA3 Enterprise"),
+        (CWSecurity::WPA3Personal, "WPA3 Personal"),
+        (CWSecurity::WPA3Transition, "WPA3/WPA2 Personal"),
+        (CWSecurity::WPA2Enterprise, "WPA2 Enterprise"),
+        (CWSecurity::WPA2Personal, "WPA2 Personal"),
+        (CWSecurity::WPAEnterpriseMixed, "WPA/WPA2 Enterprise"),
+        (CWSecurity::WPAPersonalMixed, "WPA/WPA2 Personal"),
+        (CWSecurity::WPAEnterprise, "WPA Enterprise"),
+        (CWSecurity::WPAPersonal, "WPA Personal"),
+        (CWSecurity::Enterprise, "Enterprise"),
+        (CWSecurity::Personal, "Personal"),
+        (CWSecurity::DynamicWEP, "Dynamic WEP"),
+        (CWSecurity::WEP, "WEP"),
+        (CWSecurity::OWE, "OWE"),
+        (CWSecurity::OWETransition, "OWE Transition"),
+    ];
+
+    candidates
+        .into_iter()
+        .find_map(|(security, label)| network.supportsSecurity(security).then_some(label))
+        .unwrap_or_else(|| {
+            if network.supportsSecurity(CWSecurity::None) {
+                "Open"
+            } else {
+                "Unknown"
+            }
+        })
+        .to_string()
 }
 
 #[cfg(target_os = "macos")]

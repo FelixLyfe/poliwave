@@ -53,6 +53,7 @@ document.addEventListener("keydown", (event) => {
 
 rerender();
 void runScan();
+setupAutoScan();
 
 function rerender(): void {
   render(state, handlers);

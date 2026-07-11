@@ -20,7 +20,7 @@ export interface AppState {
 export function createInitialState(): AppState {
   return {
     history: new Map(),
-    autoScan: false,
+    autoScan: true,
     busy: false,
     connectDraftPassword: "",
     connectDraftUsername: "",
