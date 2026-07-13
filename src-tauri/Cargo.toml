@@ -1,6 +1,6 @@
 [package]
 name = "wifi-analyzer"
-version = "0.1.4"
+version = "0.1.5"
 description = "Desktop WiFi signal analyzer"
 authors = ["Codex"]
 edition = "2021"
