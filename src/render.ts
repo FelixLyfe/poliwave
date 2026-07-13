@@ -30,7 +30,6 @@ export function mountShell(root: HTMLElement): void {
           <div class="app-lockup">
             <span class="app-icon" aria-hidden="true"><i data-lucide="wifi"></i></span>
             <div>
-              <p class="kicker">Desktop WiFi Analyzer</p>
               <h1>WiFi 分析器</h1>
             </div>
           </div>
@@ -83,7 +82,6 @@ export function mountShell(root: HTMLElement): void {
           <section class="panel curve-panel">
             <div class="panel-head">
               <div>
-                <p class="panel-label">RSSI 历史</p>
                 <h2 id="curveTitle">RSSI 曲线</h2>
               </div>
               <span id="curveMeta" class="stamp">选择一个网络</span>
@@ -96,7 +94,6 @@ export function mountShell(root: HTMLElement): void {
             <div class="panel recommendation-panel">
               <div class="panel-head">
                 <div>
-                  <p class="panel-label">连接与信道</p>
                   <h2>建议</h2>
                 </div>
                 <i data-lucide="sparkles"></i>
@@ -107,7 +104,6 @@ export function mountShell(root: HTMLElement): void {
             <div class="panel congestion-panel">
               <div class="panel-head">
                 <div>
-                  <p class="panel-label">信道负载</p>
                   <h2>信道拥堵</h2>
                 </div>
                 <div class="legend">
@@ -127,6 +123,8 @@ export function mountShell(root: HTMLElement): void {
 }
 
 export function render(state: AppState, handlers: RenderHandlers): void {
+  syncAutoScanInput(mustGet<HTMLInputElement>("autoScan"), state.autoScan);
+
   const scanBtn = mustGet<HTMLButtonElement>("scanBtn");
   scanBtn.disabled = state.busy || state.connectingBssid !== undefined;
   scanBtn.classList.toggle("loading", state.busy);
@@ -151,6 +149,10 @@ export function render(state: AppState, handlers: RenderHandlers): void {
   renderConnectDialog(state, handlers);
 
   createIcons({ icons: { KeyRound, Radar, RadioTower, Sparkles, Wifi, X } });
+}
+
+export function syncAutoScanInput(input: Pick<HTMLInputElement, "checked">, autoScan: boolean): void {
+  input.checked = autoScan;
 }
 
 function renderNetworks(state: AppState, networks: WifiNetwork[], handlers: RenderHandlers): void {
