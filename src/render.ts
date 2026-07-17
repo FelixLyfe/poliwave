@@ -25,15 +25,17 @@ export interface RenderHandlers {
 export function mountShell(root: HTMLElement): void {
   root.innerHTML = `
     <main class="shell">
-      <section class="command-bar">
-        <header class="topbar">
-          <div class="app-lockup">
-            <span class="app-icon" aria-hidden="true"><i data-lucide="wifi"></i></span>
-            <div>
-              <h1>WiFi 分析器</h1>
-            </div>
+      <header class="command-bar">
+        <div class="app-lockup">
+          <span class="app-icon" aria-hidden="true"><i data-lucide="wifi"></i></span>
+          <div class="app-title">
+            <h1>WiFi 分析器</h1>
+            <p id="scanActivity" class="scan-activity" role="status" aria-live="polite">
+              <span class="activity-dot" aria-hidden="true"></span>
+              <span>准备扫描</span>
+            </p>
           </div>
-        </header>
+        </div>
 
         <section class="status-grid" aria-label="扫描摘要">
           <article class="metric metric-strong">
@@ -55,16 +57,17 @@ export function mountShell(root: HTMLElement): void {
         </section>
 
         <div class="actions">
-          <button id="scanBtn" class="button primary" type="button">
+          <button id="scanBtn" class="button primary" type="button" aria-label="立即刷新 WiFi 扫描结果">
             <i data-lucide="radar"></i>
-            <span>扫描 WiFi</span>
+            <span>立即刷新</span>
           </button>
           <label class="toggle">
-            <input id="autoScan" type="checkbox" />
-            <span>每 5 秒刷新</span>
+            <input id="autoScan" type="checkbox" role="switch" />
+            <span class="toggle-track" aria-hidden="true"><span></span></span>
+            <span class="toggle-label">每 5 秒</span>
           </label>
         </div>
-      </section>
+      </header>
 
       <section class="workspace">
         <aside class="panel network-panel">
@@ -127,8 +130,19 @@ export function render(state: AppState, handlers: RenderHandlers): void {
 
   const scanBtn = mustGet<HTMLButtonElement>("scanBtn");
   scanBtn.disabled = state.busy || state.connectingBssid !== undefined;
+  scanBtn.setAttribute("aria-busy", String(state.busy));
   scanBtn.classList.toggle("loading", state.busy);
-  scanBtn.querySelector("span")!.textContent = state.busy ? "扫描中" : "扫描 WiFi";
+  scanBtn.querySelector("span")!.textContent = state.busy ? "扫描中" : "立即刷新";
+
+  const scanActivity = mustGet<HTMLElement>("scanActivity");
+  scanActivity.className = `scan-activity ${state.busy ? "scanning" : state.lastError ? "error" : state.autoScan ? "active" : "paused"}`;
+  scanActivity.querySelector("span:last-child")!.textContent = state.busy
+    ? "正在扫描周围网络"
+    : state.lastError
+      ? "上次扫描失败"
+      : state.autoScan
+        ? "自动刷新已开启"
+        : "自动刷新已暂停";
 
   const scan = state.scan;
   const selected = getSelectedNetwork(state);
@@ -176,7 +190,7 @@ function renderNetworks(state: AppState, networks: WifiNetwork[], handlers: Rend
       const selected = network.bssid === state.selectedBssid;
       const connected = network.isConnected;
       return `
-        <button class="network-row ${selected ? "selected" : ""} ${connected ? "connected" : ""}" type="button" data-bssid="${escapeAttr(network.bssid)}">
+        <button class="network-row ${selected ? "selected" : ""} ${connected ? "connected" : ""}" type="button" data-bssid="${escapeAttr(network.bssid)}" aria-pressed="${selected}" aria-label="选择 ${escapeAttr(network.ssid)}，信号 ${network.signalDbm} dBm">
           <span class="signal-mark ${signalClass(network.signalDbm)}"></span>
           <span class="network-main">
             <span class="network-title">
@@ -315,7 +329,7 @@ function renderSelectedDetail(state: AppState, network: WifiNetwork | undefined,
         <i data-lucide="key-round"></i>
         <span>${connecting ? "连接中" : network.isConnected ? "已连接" : "连接 WiFi"}</span>
       </button>
-      <p class="connect-status ${statusClass}">${escapeHtml(statusText || connectHint(network))}</p>
+          <p class="connect-status ${statusClass}" role="status" aria-live="polite">${escapeHtml(statusText || connectHint(network))}</p>
     </div>
   `;
 
@@ -340,7 +354,7 @@ function renderConnectDialog(state: AppState, handlers: RenderHandlers): void {
 
   root.innerHTML = `
     <div class="modal-backdrop" role="presentation" data-close-dialog="true">
-      <section class="connect-modal" role="dialog" aria-modal="true" aria-labelledby="connectDialogTitle">
+      <section class="connect-modal" role="dialog" aria-modal="true" aria-labelledby="connectDialogTitle" aria-describedby="connectDialogStatus">
         <header class="modal-head">
           <div>
             <p class="panel-label">连接网络</p>
@@ -360,15 +374,15 @@ function renderConnectDialog(state: AppState, handlers: RenderHandlers): void {
             network.isEnterprise
               ? `<label class="password-field">
                   <span>用户名</span>
-                  <input id="wifiUsername" type="text" autocomplete="username" placeholder="输入企业账号" value="${escapeAttr(state.connectDraftUsername)}" />
+                  <input id="wifiUsername" type="text" autocomplete="username" placeholder="输入企业账号" value="${escapeAttr(state.connectDraftUsername)}" required />
                 </label>`
               : ""
           }
           <label class="password-field">
             <span>密码</span>
-            <input id="wifiPassword" type="password" autocomplete="current-password" placeholder="${passwordLabel}" value="${escapeAttr(state.connectDraftPassword)}" ${network.isOpen ? "disabled" : ""} />
+            <input id="wifiPassword" type="password" autocomplete="current-password" placeholder="${passwordLabel}" value="${escapeAttr(state.connectDraftPassword)}" ${network.isOpen ? "disabled" : "required"} />
           </label>
-          <p class="connect-status ${statusClass}">${escapeHtml(statusText)}</p>
+          <p id="connectDialogStatus" class="connect-status ${statusClass}" role="status" aria-live="polite">${escapeHtml(statusText)}</p>
           <div class="modal-actions">
             <button class="button" type="button" data-close-dialog="true">取消</button>
             <button class="button primary connect-button" type="submit" ${connecting ? "disabled" : ""}>

@@ -24,8 +24,8 @@ export function buildCurveSvg(points: HistoryPoint[]): string {
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="RSSI history curve">
       <defs>
         <linearGradient id="curveFill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stop-color="#00d18f" stop-opacity="0.28" />
-          <stop offset="100%" stop-color="#00d18f" stop-opacity="0" />
+          <stop offset="0%" stop-color="#64d2ff" stop-opacity="0.25" />
+          <stop offset="100%" stop-color="#64d2ff" stop-opacity="0" />
         </linearGradient>
       </defs>
       <line class="grid" x1="${padding}" y1="${padding}" x2="${width - padding}" y2="${padding}" />

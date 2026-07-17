@@ -63,7 +63,7 @@ describe("formatSourceLabel", () => {
   });
 
   it("passes through unknown sources", () => {
-    expect(formatSourceLabel("Browser demo data")).toBe("Browser demo data");
+    expect(formatSourceLabel("Browser demo data")).toBe("浏览器演示数据");
   });
 });
 

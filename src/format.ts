@@ -53,6 +53,9 @@ export function formatTime(value: string): string {
 }
 
 export function formatSourceLabel(source: string): string {
+  if (source === "Browser demo data") {
+    return "浏览器演示数据";
+  }
   if (source === "CoreWLAN") {
     return "macOS WiFi";
   }
