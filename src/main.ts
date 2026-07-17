@@ -44,6 +44,7 @@ scanBtn.addEventListener("click", () => void runScan());
 autoScanInput.addEventListener("change", () => {
   state.autoScan = autoScanInput.checked;
   setupAutoScan();
+  rerender();
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.connectDialogBssid) {
