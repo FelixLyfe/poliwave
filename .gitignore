@@ -1,0 +1,11 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+release
+.ai-tracker
+outputs
+poster
+trd
+*.log
+.DS_Store
