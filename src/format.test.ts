@@ -1,33 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  canConnectNetwork,
   clamp,
-  connectHint,
   escapeHtml,
   formatSourceLabel,
   getBusiestChannelLabel,
-  isHiddenNetwork,
   loadClass,
   signalClass,
 } from "./format";
-import type { ChannelCongestion, WifiNetwork } from "./types";
-
-function makeNetwork(overrides: Partial<WifiNetwork> = {}): WifiNetwork {
-  return {
-    ssid: "Studio-5G",
-    bssid: "8c:85:90:42:11:01",
-    signalDbm: -50,
-    quality: 100,
-    channel: 149,
-    frequencyMhz: 5745,
-    band: "5GHz",
-    security: "WPA2",
-    isOpen: false,
-    isEnterprise: false,
-    isConnected: false,
-    ...overrides,
-  };
-}
+import type { ChannelCongestion } from "./types";
 
 describe("signalClass", () => {
   it("maps dBm to signal levels at boundaries", () => {
@@ -92,28 +72,5 @@ describe("clamp", () => {
 describe("escapeHtml", () => {
   it("escapes html-sensitive characters", () => {
     expect(escapeHtml(`<b>"A&B"</b> 'x'`)).toBe("&lt;b&gt;&quot;A&amp;B&quot;&lt;/b&gt; &#39;x&#39;");
-  });
-});
-
-describe("network connectability", () => {
-  it("detects hidden networks", () => {
-    expect(isHiddenNetwork(makeNetwork({ ssid: "<hidden>" }))).toBe(true);
-    expect(isHiddenNetwork(makeNetwork())).toBe(false);
-  });
-
-  it("blocks hidden and enterprise networks from in-app connect", () => {
-    expect(canConnectNetwork(makeNetwork())).toBe(true);
-    expect(canConnectNetwork(makeNetwork({ isConnected: true }))).toBe(false);
-    expect(canConnectNetwork(makeNetwork({ ssid: "<hidden>" }))).toBe(false);
-    expect(canConnectNetwork(makeNetwork({ isEnterprise: true }))).toBe(false);
-    expect(canConnectNetwork(makeNetwork({ isOpen: true }))).toBe(true);
-  });
-
-  it("builds connect hints from backend flags", () => {
-    expect(connectHint(makeNetwork({ isConnected: true }))).toContain("当前已连接");
-    expect(connectHint(makeNetwork({ ssid: "<hidden>" }))).toContain("隐藏网络");
-    expect(connectHint(makeNetwork({ isEnterprise: true }))).toContain("企业认证");
-    expect(connectHint(makeNetwork({ isOpen: true }))).toContain("开放网络");
-    expect(connectHint(makeNetwork())).toContain("系统 WiFi 命令");
   });
 });

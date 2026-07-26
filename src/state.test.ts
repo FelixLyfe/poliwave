@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, getDialogNetwork, getSelectedNetwork, HISTORY_LIMIT, ingestHistory } from "./state";
+import { createInitialState, getSelectedNetwork, HISTORY_LIMIT, ingestHistory } from "./state";
 import type { ScanResult, WifiNetwork } from "./types";
 
 function makeNetwork(overrides: Partial<WifiNetwork> = {}): WifiNetwork {
@@ -74,16 +74,5 @@ describe("selectors", () => {
 
     state.selectedBssid = "ff:ff:ff:ff:ff:ff";
     expect(getSelectedNetwork(state)).toBe(first);
-  });
-
-  it("returns dialog network only on exact match", () => {
-    const state = createInitialState();
-    const network = makeNetwork();
-    state.scan = makeScan([network]);
-
-    expect(getDialogNetwork(state)).toBeUndefined();
-
-    state.connectDialogBssid = network.bssid;
-    expect(getDialogNetwork(state)).toBe(network);
   });
 });

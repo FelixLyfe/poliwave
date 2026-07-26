@@ -8,13 +8,7 @@ export interface AppState {
   history: Map<string, HistoryPoint[]>;
   autoScan: boolean;
   busy: boolean;
-  connectingBssid?: string;
-  connectDialogBssid?: string;
-  connectDraftPassword: string;
-  connectDraftUsername: string;
   lastError?: string;
-  connectError?: string;
-  connectMessage?: string;
 }
 
 export function createInitialState(): AppState {
@@ -22,8 +16,6 @@ export function createInitialState(): AppState {
     history: new Map(),
     autoScan: true,
     busy: false,
-    connectDraftPassword: "",
-    connectDraftUsername: "",
   };
 }
 
@@ -40,9 +32,4 @@ export function ingestHistory(state: AppState, scan: ScanResult): void {
 export function getSelectedNetwork(state: AppState): WifiNetwork | undefined {
   const networks = state.scan?.networks ?? [];
   return networks.find((network) => network.bssid === state.selectedBssid) ?? networks[0];
-}
-
-export function getDialogNetwork(state: AppState): WifiNetwork | undefined {
-  const networks = state.scan?.networks ?? [];
-  return networks.find((network) => network.bssid === state.connectDialogBssid);
 }

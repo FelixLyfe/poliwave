@@ -1,4 +1,4 @@
-import type { ChannelCongestion, WifiNetwork } from "./types";
+import type { ChannelCongestion } from "./types";
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -83,28 +83,4 @@ export function getBusiestChannelLabel(channels: ChannelCongestion[]): string {
     undefined,
   );
   return busiest ? `${busiest.band} CH ${busiest.channel}` : "--";
-}
-
-export function isHiddenNetwork(network: WifiNetwork): boolean {
-  return network.ssid === "<hidden>";
-}
-
-export function canConnectNetwork(network: WifiNetwork): boolean {
-  return !network.isConnected && !isHiddenNetwork(network) && !network.isEnterprise;
-}
-
-export function connectHint(network: WifiNetwork): string {
-  if (network.isConnected) {
-    return "当前已连接";
-  }
-  if (isHiddenNetwork(network)) {
-    return "隐藏网络请在系统 WiFi 设置中连接";
-  }
-  if (network.isEnterprise) {
-    return "企业认证 WiFi 请在系统 WiFi 设置中连接";
-  }
-  if (network.isOpen) {
-    return "开放网络可直接连接";
-  }
-  return "连接会调用系统 WiFi 命令";
 }
