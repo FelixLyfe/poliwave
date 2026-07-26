@@ -1,9 +1,7 @@
-import { createIcons, KeyRound, Radar, RadioTower, Sparkles, Wifi, X } from "lucide";
+import { createIcons, Radar, RadioTower, Sparkles, Wifi } from "lucide";
 import { buildCurveSvg } from "./chart";
 import {
-  canConnectNetwork,
   clamp,
-  connectHint,
   escapeAttr,
   escapeHtml,
   formatSourceLabel,
@@ -12,14 +10,11 @@ import {
   loadClass,
   signalClass,
 } from "./format";
-import { getDialogNetwork, getSelectedNetwork, type AppState } from "./state";
+import { getSelectedNetwork, type AppState } from "./state";
 import type { Band, ChannelCongestion, Recommendation, WifiNetwork } from "./types";
 
 export interface RenderHandlers {
   onSelectNetwork(bssid: string | undefined): void;
-  onOpenConnectDialog(network: WifiNetwork): void;
-  onCloseConnectDialog(): void;
-  onSubmitConnect(network: WifiNetwork, username: string, password: string): void;
 }
 
 export function mountShell(root: HTMLElement): void {
@@ -78,7 +73,7 @@ export function mountShell(root: HTMLElement): void {
             </div>
             <span id="scanTime" class="stamp">--</span>
           </div>
-          <div id="networkList" class="network-list empty-state">点击扫描开始分析</div>
+          <div id="networkList" class="network-list empty-state" role="listbox" aria-label="周围 WiFi">点击扫描开始分析</div>
         </aside>
 
         <section class="analysis">
@@ -121,7 +116,6 @@ export function mountShell(root: HTMLElement): void {
         </section>
       </section>
     </main>
-    <div id="connectDialogRoot"></div>
   `;
 }
 
@@ -129,7 +123,7 @@ export function render(state: AppState, handlers: RenderHandlers): void {
   syncAutoScanInput(mustGet<HTMLInputElement>("autoScan"), state.autoScan);
 
   const scanBtn = mustGet<HTMLButtonElement>("scanBtn");
-  scanBtn.disabled = state.busy || state.connectingBssid !== undefined;
+  scanBtn.disabled = state.busy;
   scanBtn.setAttribute("aria-busy", String(state.busy));
   scanBtn.classList.toggle("loading", state.busy);
   scanBtn.querySelector("span")!.textContent = state.busy ? "扫描中" : "立即刷新";
@@ -159,10 +153,9 @@ export function render(state: AppState, handlers: RenderHandlers): void {
   renderRecommendations(state, scan?.recommendations ?? []);
   renderChannels(state, scan?.channels ?? []);
   renderCurve(state, selected);
-  renderSelectedDetail(state, selected, handlers);
-  renderConnectDialog(state, handlers);
+  renderSelectedDetail(selected);
 
-  createIcons({ icons: { KeyRound, Radar, RadioTower, Sparkles, Wifi, X } });
+  createIcons({ icons: { Radar, RadioTower, Sparkles, Wifi } });
 }
 
 export function syncAutoScanInput(input: Pick<HTMLInputElement, "checked">, autoScan: boolean): void {
@@ -171,6 +164,11 @@ export function syncAutoScanInput(input: Pick<HTMLInputElement, "checked">, auto
 
 function renderNetworks(state: AppState, networks: WifiNetwork[], handlers: RenderHandlers): void {
   const list = mustGet<HTMLDivElement>("networkList");
+  const activeElement = document.activeElement;
+  const focusedBssid =
+    activeElement instanceof HTMLButtonElement && activeElement.classList.contains("network-row")
+      ? activeElement.dataset.bssid
+      : undefined;
 
   if (state.lastError) {
     list.className = "network-list empty-state error";
@@ -190,12 +188,12 @@ function renderNetworks(state: AppState, networks: WifiNetwork[], handlers: Rend
       const selected = network.bssid === state.selectedBssid;
       const connected = network.isConnected;
       return `
-        <button class="network-row ${selected ? "selected" : ""} ${connected ? "connected" : ""}" type="button" data-bssid="${escapeAttr(network.bssid)}" aria-pressed="${selected}" aria-label="选择 ${escapeAttr(network.ssid)}，信号 ${network.signalDbm} dBm">
+        <button class="network-row ${selected ? "selected" : ""} ${connected ? "connected" : ""}" type="button" role="option" data-bssid="${escapeAttr(network.bssid)}" aria-selected="${selected}" aria-label="选择 ${escapeAttr(network.ssid)}，信号 ${network.signalDbm} dBm" tabindex="${selected ? "0" : "-1"}">
           <span class="signal-mark ${signalClass(network.signalDbm)}"></span>
           <span class="network-main">
             <span class="network-title">
               <strong>${escapeHtml(network.ssid)}</strong>
-              ${connected ? '<span class="connected-badge">当前连接</span>' : ""}
+              ${connected ? '<span class="connected-badge">当前网络</span>' : ""}
             </span>
             <small>${escapeHtml(network.bssid)} | CH ${network.channel || "--"} | ${network.frequencyMhz || "--"} MHz</small>
           </span>
@@ -209,11 +207,28 @@ function renderNetworks(state: AppState, networks: WifiNetwork[], handlers: Rend
     })
     .join("");
 
-  list.querySelectorAll<HTMLButtonElement>(".network-row").forEach((button) => {
+  const buttons = Array.from(list.querySelectorAll<HTMLButtonElement>(".network-row"));
+  buttons.forEach((button, index) => {
     button.addEventListener("click", () => {
       handlers.onSelectNetwork(button.dataset.bssid);
     });
+    button.addEventListener("keydown", (event) => {
+      const targetIndex = getKeyboardTargetIndex(event.key, index, buttons.length);
+      if (targetIndex === undefined) {
+        return;
+      }
+
+      event.preventDefault();
+      const target = buttons[targetIndex];
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "nearest" });
+      handlers.onSelectNetwork(target.dataset.bssid);
+    });
   });
+
+  if (focusedBssid) {
+    buttons.find((button) => button.dataset.bssid === focusedBssid)?.focus({ preventScroll: true });
+  }
 }
 
 function renderRecommendations(state: AppState, recommendations: Recommendation[]): void {
@@ -228,7 +243,7 @@ function renderRecommendations(state: AppState, recommendations: Recommendation[
   root.className = "recommendations";
   root.innerHTML = recommendations
     .map((item) => {
-      const icon = item.kind === "connect" ? "wifi" : "radio-tower";
+      const icon = item.kind === "network" ? "wifi" : "radio-tower";
       return `
         <article class="recommendation">
           <i data-lucide="${icon}"></i>
@@ -304,18 +319,15 @@ function renderCurve(state: AppState, network?: WifiNetwork): void {
   root.innerHTML = buildCurveSvg(points);
 }
 
-function renderSelectedDetail(state: AppState, network: WifiNetwork | undefined, handlers: RenderHandlers): void {
+function renderSelectedDetail(network: WifiNetwork | undefined): void {
   const root = mustGet<HTMLDivElement>("selectedDetail");
+  const previousBssid = root.dataset.bssid;
 
   if (!network) {
     root.innerHTML = "";
+    delete root.dataset.bssid;
     return;
   }
-
-  const connecting = state.connectingBssid === network.bssid;
-  const canConnect = canConnectNetwork(network);
-  const statusClass = state.connectError ? "error" : state.connectMessage ? "success" : "";
-  const statusText = state.connectError ?? state.connectMessage ?? "";
 
   root.innerHTML = `
     <div><span>SSID</span><strong>${escapeHtml(network.ssid)}</strong></div>
@@ -323,95 +335,36 @@ function renderSelectedDetail(state: AppState, network: WifiNetwork | undefined,
     <div><span>频段</span><strong>${network.band}</strong></div>
     <div><span>安全</span><strong>${escapeHtml(network.security)}</strong></div>
     <div><span>信号质量</span><strong>${network.quality}%</strong></div>
-    <div><span>连接状态</span><strong>${network.isConnected ? "当前连接" : "未连接"}</strong></div>
-    <div class="selected-action">
-      <button id="connectNetworkBtn" class="button connect-button" type="button" ${connecting || !canConnect ? "disabled" : ""}>
-        <i data-lucide="key-round"></i>
-        <span>${connecting ? "连接中" : network.isConnected ? "已连接" : "连接 WiFi"}</span>
-      </button>
-          <p class="connect-status ${statusClass}" role="status" aria-live="polite">${escapeHtml(statusText || connectHint(network))}</p>
-    </div>
+    <div><span>系统状态</span><strong>${network.isConnected ? "当前使用" : "未使用"}</strong></div>
   `;
+  root.dataset.bssid = network.bssid;
 
-  root.querySelector<HTMLButtonElement>("#connectNetworkBtn")?.addEventListener("click", () => {
-    handlers.onOpenConnectDialog(network);
-  });
+  if (previousBssid && previousBssid !== network.bssid && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    root.getAnimations().forEach((animation) => animation.cancel());
+    root.animate(
+      [
+        { opacity: 0.68, transform: "translateX(6px)" },
+        { opacity: 1, transform: "translateX(0)" },
+      ],
+      { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+    );
+  }
 }
 
-function renderConnectDialog(state: AppState, handlers: RenderHandlers): void {
-  const root = mustGet<HTMLDivElement>("connectDialogRoot");
-  const network = getDialogNetwork(state);
-
-  if (!network) {
-    root.innerHTML = "";
-    return;
+export function getKeyboardTargetIndex(key: string, currentIndex: number, itemCount: number): number | undefined {
+  if (key === "ArrowDown") {
+    return Math.min(currentIndex + 1, itemCount - 1);
   }
-
-  const connecting = state.connectingBssid === network.bssid;
-  const passwordLabel = network.isOpen ? "开放网络无需密码" : network.isEnterprise ? "企业 WiFi 密码" : "WiFi 密码";
-  const statusClass = state.connectError ? "error" : state.connectMessage ? "success" : "";
-  const statusText = state.connectError ?? state.connectMessage ?? connectHint(network);
-
-  root.innerHTML = `
-    <div class="modal-backdrop" role="presentation" data-close-dialog="true">
-      <section class="connect-modal" role="dialog" aria-modal="true" aria-labelledby="connectDialogTitle" aria-describedby="connectDialogStatus">
-        <header class="modal-head">
-          <div>
-            <p class="panel-label">连接网络</p>
-            <h2 id="connectDialogTitle">${escapeHtml(network.ssid)}</h2>
-          </div>
-          <button class="icon-button" type="button" aria-label="关闭" data-close-dialog="true">
-            <i data-lucide="x"></i>
-          </button>
-        </header>
-        <div class="modal-network-summary">
-          <div><span>安全</span><strong>${escapeHtml(network.security)}</strong></div>
-          <div><span>频段</span><strong>${network.band}</strong></div>
-          <div><span>信号</span><strong>${network.signalDbm} dBm</strong></div>
-        </div>
-        <form id="connectForm" class="modal-form">
-          ${
-            network.isEnterprise
-              ? `<label class="password-field">
-                  <span>用户名</span>
-                  <input id="wifiUsername" type="text" autocomplete="username" placeholder="输入企业账号" value="${escapeAttr(state.connectDraftUsername)}" required />
-                </label>`
-              : ""
-          }
-          <label class="password-field">
-            <span>密码</span>
-            <input id="wifiPassword" type="password" autocomplete="current-password" placeholder="${passwordLabel}" value="${escapeAttr(state.connectDraftPassword)}" ${network.isOpen ? "disabled" : "required"} />
-          </label>
-          <p id="connectDialogStatus" class="connect-status ${statusClass}" role="status" aria-live="polite">${escapeHtml(statusText)}</p>
-          <div class="modal-actions">
-            <button class="button" type="button" data-close-dialog="true">取消</button>
-            <button class="button primary connect-button" type="submit" ${connecting ? "disabled" : ""}>
-              <i data-lucide="key-round"></i>
-              <span>${connecting ? "连接中" : "连接"}</span>
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
-  `;
-
-  root.querySelectorAll<HTMLElement>("[data-close-dialog]").forEach((element) => {
-    element.addEventListener("click", (event) => {
-      if (event.target === element || element instanceof HTMLButtonElement) {
-        handlers.onCloseConnectDialog();
-      }
-    });
-  });
-  root.querySelector<HTMLInputElement>("#wifiUsername")?.focus();
-  if (!network.isEnterprise && !network.isOpen) {
-    root.querySelector<HTMLInputElement>("#wifiPassword")?.focus();
+  if (key === "ArrowUp") {
+    return Math.max(currentIndex - 1, 0);
   }
-  root.querySelector<HTMLFormElement>("#connectForm")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const username = root.querySelector<HTMLInputElement>("#wifiUsername")?.value ?? "";
-    const password = root.querySelector<HTMLInputElement>("#wifiPassword")?.value ?? "";
-    handlers.onSubmitConnect(network, username, password);
-  });
+  if (key === "Home") {
+    return 0;
+  }
+  if (key === "End") {
+    return itemCount - 1;
+  }
+  return undefined;
 }
 
 function setText(id: string, value: string): void {

@@ -1,7 +1,7 @@
 import { clamp } from "./format";
 import type { Band, ChannelCongestion, ScanResult, WifiNetwork } from "./types";
 
-export function demoScan(connectedSsid: string): ScanResult {
+export function demoScan(): ScanResult {
   const now = new Date().toISOString();
   const jitter = () => Math.round((Math.random() - 0.5) * 8);
   const networks: WifiNetwork[] = [
@@ -12,7 +12,7 @@ export function demoScan(connectedSsid: string): ScanResult {
     makeDemo("Printer Setup", "c0:ff:ee:00:19:91", -82 + jitter(), 11, "Open", "2.4GHz"),
     makeDemo("Office-Guest", "28:ef:01:dd:22:91", -58 + jitter(), 36, "WPA2 Enterprise", "5GHz"),
   ]
-    .map((network) => ({ ...network, isConnected: network.ssid === connectedSsid }))
+    .map((network) => ({ ...network, isConnected: network.ssid === "Studio-5G" }))
     .sort((a, b) => b.signalDbm - a.signalDbm);
 
   const channels = buildDemoChannels(networks);
@@ -24,8 +24,8 @@ export function demoScan(connectedSsid: string): ScanResult {
     channels,
     recommendations: [
       {
-        kind: "connect",
-        title: "建议连接 Studio-5G",
+        kind: "network",
+        title: "推荐网络 Studio-5G",
         detail: "5GHz 信号稳定，信道负载低于邻近 2.4GHz 网络。",
         targetSsid: "Studio-5G",
         channel: 149,

@@ -23,7 +23,7 @@ export interface ChannelCongestion {
 }
 
 export interface Recommendation {
-  kind: "connect" | "channel" | string;
+  kind: "network" | "channel" | string;
   title: string;
   detail: string;
   targetSsid?: string | null;
@@ -37,12 +37,6 @@ export interface ScanResult {
   networks: WifiNetwork[];
   channels: ChannelCongestion[];
   recommendations: Recommendation[];
-}
-
-export interface ConnectResult {
-  ssid: string;
-  message: string;
-  confirmed: boolean;
 }
 
 export interface HistoryPoint {
