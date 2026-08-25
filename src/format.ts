@@ -1,5 +1,3 @@
-import type { ChannelCongestion } from "./types";
-
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -25,23 +23,13 @@ export function signalClass(dbm: number): string {
   if (dbm >= -55) {
     return "excellent";
   }
-  if (dbm >= -68) {
+  if (dbm >= -67) {
     return "good";
   }
-  if (dbm >= -80) {
+  if (dbm >= -79) {
     return "fair";
   }
   return "poor";
-}
-
-export function loadClass(load: number): string {
-  if (load >= 72) {
-    return "high";
-  }
-  if (load >= 42) {
-    return "mid";
-  }
-  return "low";
 }
 
 export function formatTime(value: string): string {
@@ -68,19 +56,5 @@ export function formatSourceLabel(source: string): string {
   if (source.startsWith("netsh")) {
     return "Windows WiFi";
   }
-  if (source.startsWith("nmcli")) {
-    return "Linux WiFi";
-  }
-  if (source.startsWith("iw ")) {
-    return "iw 扫描";
-  }
   return source;
-}
-
-export function getBusiestChannelLabel(channels: ChannelCongestion[]): string {
-  const busiest = channels.reduce<ChannelCongestion | undefined>(
-    (current, item) => (!current || item.loadScore > current.loadScore ? item : current),
-    undefined,
-  );
-  return busiest ? `${busiest.band} CH ${busiest.channel}` : "--";
 }

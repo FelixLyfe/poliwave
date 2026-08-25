@@ -1,5 +1,5 @@
 import { clamp } from "./format";
-import type { Band, ChannelCongestion, ScanResult, WifiNetwork } from "./types";
+import type { Band, ChannelDistribution, ScanResult, WifiNetwork } from "./types";
 
 export function demoScan(): ScanResult {
   const now = new Date().toISOString();
@@ -15,37 +15,13 @@ export function demoScan(): ScanResult {
     .map((network) => ({ ...network, isConnected: network.ssid === "Studio-5G" }))
     .sort((a, b) => b.signalDbm - a.signalDbm);
 
-  const channels = buildDemoChannels(networks);
+  const channelDistribution = buildDemoChannelDistribution(networks);
 
   return {
     scannedAt: now,
     source: "Browser demo data",
     networks,
-    channels,
-    recommendations: [
-      {
-        kind: "network",
-        title: "推荐网络 Studio-5G",
-        detail: "5GHz 信号稳定，信道负载低于邻近 2.4GHz 网络。",
-        targetSsid: "Studio-5G",
-        channel: 149,
-        score: 91,
-      },
-      {
-        kind: "channel",
-        title: "2.4GHz 建议切到信道 1",
-        detail: "当前 6/11 附近网络较多，信道 1 的重叠干扰最低。",
-        channel: 1,
-        score: 82,
-      },
-      {
-        kind: "channel",
-        title: "5GHz 建议切到信道 149",
-        detail: "149 附近负载低，适合主路由或办公设备优先使用。",
-        channel: 149,
-        score: 88,
-      },
-    ],
+    channelDistribution,
   };
 }
 
@@ -73,7 +49,7 @@ function makeDemo(
   };
 }
 
-function buildDemoChannels(networks: WifiNetwork[]): ChannelCongestion[] {
+function buildDemoChannelDistribution(networks: WifiNetwork[]): ChannelDistribution[] {
   const groups = new Map<string, WifiNetwork[]>();
   for (const network of networks) {
     const key = `${network.band}:${network.channel}`;
@@ -86,8 +62,6 @@ function buildDemoChannels(networks: WifiNetwork[]): ChannelCongestion[] {
       band: band as Band,
       channel: Number(channel),
       networkCount: items.length,
-      strongestSignalDbm: Math.max(...items.map((item) => item.signalDbm)),
-      loadScore: clamp(items.reduce((sum, item) => sum + item.quality, 0), 8, 100),
     };
   });
 }

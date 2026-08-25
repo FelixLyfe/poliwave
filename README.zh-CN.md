@@ -1,25 +1,26 @@
-# WiFi 分析器
+# Poliwave
 
 [English](./README.md) | 简体中文
 
-基于 Tauri + Rust 的桌面端 WiFi 信号分析器 MVP。
+Poliwave 是一款基于 Tauri + Rust 的桌面端 WiFi 信号分析器 MVP。
 
-![WiFi 分析器桌面端界面](./wifi-analyzer-desktop.png)
+![Poliwave 桌面端界面](./poliwave-desktop.png)
 
 ## 功能特性
 
 - 通过 Rust 后端扫描附近的 WiFi 网络。
 - 按 RSSI 信号强度对网络进行排序。
 - 根据信道或频率识别 2.4GHz、5GHz 和 6GHz 频段。
-- 展示信道拥塞情况和信号负载。
+- 按信道展示本次扫描到的周边 WiFi 数量，不将其解释为实际信道负载。
 - 在前端记录 RSSI 历史，并为选中的 BSSID 绘制信号曲线。
-- 推荐应连接的 WiFi 以及应切换到的信道。
+- 根据当前连接的信号强度和安全类型显示连接状态，需要时可打开系统 WiFi 设置。
 
 ## 运行时扫描来源
 
+Poliwave 当前支持 macOS 和 Windows：
+
 - macOS：使用 CoreWLAN，并请求定位服务权限以读取真实 SSID；旧版系统命令仅作为兼容回退
 - Windows：`netsh wlan show networks mode=bssid`
-- Linux：`nmcli dev wifi list --rescan yes`，并在失败时回退到 `iw dev scan`
 
 在开发过程中如果用普通浏览器打开，应用会使用演示数据，以便在没有 Tauri 的情况下测试界面。
 
@@ -81,14 +82,14 @@ npm run tauri:build
 产物：
 
 ```text
-src-tauri/target/release/bundle/macos/WiFi Analyzer.app
+src-tauri/target/release/bundle/macos/Poliwave.app
 ```
 
 打包成便于分享的 macOS zip：
 
 ```bash
 cd src-tauri/target/release/bundle/macos
-ditto -c -k --sequesterRsrc --keepParent "WiFi Analyzer.app" "WiFi Analyzer.zip"
+ditto -c -k --sequesterRsrc --keepParent "Poliwave.app" "Poliwave.zip"
 ```
 
 ### 在 macOS 上构建 Windows x64 包
@@ -113,22 +114,22 @@ PATH="/opt/homebrew/opt/llvm/bin:$HOME/.cargo/bin:$PATH" \
 产物：
 
 ```text
-src-tauri/target/x86_64-pc-windows-msvc/release/wifi-analyzer.exe
+src-tauri/target/x86_64-pc-windows-msvc/release/poliwave.exe
 ```
 
 生成可分享的 Windows zip：
 
 ```bash
 mkdir -p release/windows-x64
-cp src-tauri/target/x86_64-pc-windows-msvc/release/wifi-analyzer.exe "release/windows-x64/WiFi Analyzer.exe"
+cp src-tauri/target/x86_64-pc-windows-msvc/release/poliwave.exe "release/windows-x64/Poliwave.exe"
 COPYFILE_DISABLE=1 LC_ALL=C LANG=C \
-  sh -c 'cd release && zip -X -r "WiFi-Analyzer-Windows-x64.zip" windows-x64'
+  sh -c 'cd release && zip -X -r "Poliwave-Windows-x64.zip" windows-x64'
 ```
 
 产物：
 
 ```text
-release/WiFi-Analyzer-Windows-x64.zip
+release/Poliwave-Windows-x64.zip
 ```
 
 Windows 构建未签名，首次打开时可能触发 SmartScreen 提示。
