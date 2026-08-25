@@ -250,6 +250,7 @@ h2 {
 }
 
 .button:focus-visible,
+.status-action:focus-visible,
 .toggle:focus-within,
 .network-row:focus-visible {
   outline: 2px solid rgb(100 210 255 / 0.82);
@@ -262,7 +263,7 @@ h2 {
 
 .button svg,
 .panel-head svg,
-.recommendation svg {
+.connection-status-item svg {
   width: 18px;
   height: 18px;
 }
@@ -403,8 +404,8 @@ h2 {
 }
 
 .network-panel,
-.recommendation-panel,
-.congestion-panel,
+.connection-panel,
+.distribution-panel,
 .curve-panel {
   display: flex;
   flex-direction: column;
@@ -580,7 +581,7 @@ h2 {
   background: var(--green);
 }
 
-.recommendations {
+.connection-status-list {
   display: grid;
   gap: 8px;
   align-content: start;
@@ -590,9 +591,9 @@ h2 {
   padding: 9px;
 }
 
-.recommendation {
+.connection-status-item {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 36px;
+  grid-template-columns: 22px minmax(0, 1fr);
   gap: 9px;
   align-items: start;
   min-height: 62px;
@@ -602,19 +603,27 @@ h2 {
   background: var(--item-bg);
 }
 
-.recommendation svg {
+.connection-status-item svg {
   margin-top: 2px;
   color: var(--accent);
 }
 
-.recommendation strong {
+.connection-status-item.positive svg {
+  color: var(--green);
+}
+
+.connection-status-item.warning svg {
+  color: var(--red);
+}
+
+.connection-status-item strong {
   display: block;
   margin-bottom: 5px;
   font-size: 13px;
   line-height: 1.2;
 }
 
-.recommendation p {
+.connection-status-item p {
   margin: 0;
   color: var(--muted-strong);
   font-size: 12px;
@@ -622,51 +631,29 @@ h2 {
   text-wrap: pretty;
 }
 
-.recommendation span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 34px;
-  height: 26px;
+.status-action {
+  margin-top: 9px;
+  padding: 6px 10px;
+  border: 1px solid rgb(100 210 255 / 0.36);
   border-radius: 6px;
-  color: #06151b;
-  font-weight: 850;
-  background: var(--accent);
-  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 720;
+  background: var(--accent-soft);
+  cursor: pointer;
 }
 
-.legend {
-  display: flex;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 12px;
+.status-action:hover {
+  border-color: rgb(100 210 255 / 0.62);
+  background: var(--control-hover);
 }
 
-.legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.legend-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.legend-dot.low,
-.bar.low {
-  background: var(--green);
-}
-
-.legend-dot.mid,
-.bar.mid {
-  background: var(--amber);
-}
-
-.legend-dot.high,
-.bar.high {
-  background: var(--red);
+.status-error {
+  margin: 0;
+  padding: 2px 4px;
+  color: var(--danger-text);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .channel-chart {
@@ -716,11 +703,36 @@ h2 {
   height: 78px;
 }
 
+.channel-value {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: end;
+  width: 100%;
+  height: 60px;
+}
+
+.channel-value b {
+  margin-bottom: 3px;
+  color: var(--muted-strong);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
 .bar {
-  align-self: end;
   width: 14px;
   min-height: 10px;
   border-radius: 6px 6px 2px 2px;
+  background: color-mix(in srgb, var(--muted) 64%, transparent);
+}
+
+.channel-item.current .bar {
+  background: var(--accent);
+}
+
+.channel-item.current .channel-value b,
+.channel-item.current span {
+  color: var(--accent);
 }
 
 .channel-item span {
@@ -888,6 +900,7 @@ h2 {
   }
 
   .button:focus-visible,
+  .status-action:focus-visible,
   .toggle:focus-within,
   .network-row:focus-visible {
     outline-color: rgb(0 122 255 / 0.72);
@@ -901,10 +914,6 @@ h2 {
   .connected-badge {
     border-color: rgb(36 138 61 / 0.34);
     background: rgb(36 138 61 / 0.09);
-  }
-
-  .recommendation span {
-    color: #002b3b;
   }
 }
 

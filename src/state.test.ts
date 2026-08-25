@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, getSelectedNetwork, HISTORY_LIMIT, ingestHistory } from "./state";
+import {
+  createInitialState,
+  getCurrentNetwork,
+  getSelectedNetwork,
+  HISTORY_LIMIT,
+  ingestHistory,
+} from "./state";
 import type { ScanResult, WifiNetwork } from "./types";
 
 function makeNetwork(overrides: Partial<WifiNetwork> = {}): WifiNetwork {
@@ -24,8 +30,7 @@ function makeScan(networks: WifiNetwork[], scannedAt = "2026-06-11T08:00:00Z"): 
     scannedAt,
     source: "test",
     networks,
-    channels: [],
-    recommendations: [],
+    channelDistribution: [],
   };
 }
 
@@ -74,5 +79,14 @@ describe("selectors", () => {
 
     state.selectedBssid = "ff:ff:ff:ff:ff:ff";
     expect(getSelectedNetwork(state)).toBe(first);
+  });
+
+  it("returns only the network marked as the current connection", () => {
+    const state = createInitialState();
+    const nearby = makeNetwork({ bssid: "aa:aa:aa:aa:aa:01" });
+    const current = makeNetwork({ bssid: "aa:aa:aa:aa:aa:02", isConnected: true });
+    state.scan = makeScan([nearby, current]);
+
+    expect(getCurrentNetwork(state)).toBe(current);
   });
 });

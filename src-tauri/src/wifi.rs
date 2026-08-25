@@ -24,25 +24,20 @@ pub struct WifiNetwork {
     pub is_connected: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelCongestion {
-    pub band: String,
-    pub channel: u16,
-    pub network_count: usize,
-    pub strongest_signal_dbm: i32,
-    pub load_score: u16,
+#[derive(Debug, Clone)]
+struct CurrentConnection {
+    ssid: String,
+    bssid: Option<String>,
+    channel: Option<u16>,
+    signal_dbm: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Recommendation {
-    pub kind: String,
-    pub title: String,
-    pub detail: String,
-    pub target_ssid: Option<String>,
-    pub channel: Option<u16>,
-    pub score: i32,
+pub struct ChannelDistribution {
+    pub band: String,
+    pub channel: u16,
+    pub network_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,8 +46,7 @@ pub struct ScanResult {
     pub scanned_at: String,
     pub source: String,
     pub networks: Vec<WifiNetwork>,
-    pub channels: Vec<ChannelCongestion>,
-    pub recommendations: Vec<Recommendation>,
+    pub channel_distribution: Vec<ChannelDistribution>,
 }
 
 pub fn scan() -> Result<ScanResult, String> {
@@ -73,15 +67,13 @@ pub fn scan() -> Result<ScanResult, String> {
             .then_with(|| a.ssid.to_lowercase().cmp(&b.ssid.to_lowercase()))
     });
 
-    let channels = build_channel_stats(&networks);
-    let recommendations = build_recommendations(&networks, &channels);
+    let channel_distribution = build_channel_distribution(&networks);
 
     Ok(ScanResult {
         scanned_at: Utc::now().to_rfc3339(),
         source,
         networks,
-        channels,
-        recommendations,
+        channel_distribution,
     })
 }
 
@@ -128,10 +120,20 @@ fn scan_core_wlan() -> Result<Vec<WifiNetwork>, String> {
         let interface = client
             .interface()
             .ok_or_else(|| "CoreWLAN 未找到 Wi-Fi 网卡。".to_string())?;
-        let current_ssid = interface.ssid().map(|value| value.to_string());
-        let current_bssid = interface
-            .bssid()
-            .map(|value| value.to_string().to_ascii_lowercase());
+        let current_connection = interface.ssid().map(|value| CurrentConnection {
+            ssid: value.to_string(),
+            bssid: interface
+                .bssid()
+                .map(|value| value.to_string().to_ascii_lowercase()),
+            channel: interface
+                .wlanChannel()
+                .map(|value| value.channelNumber().clamp(0, u16::MAX as isize) as u16),
+            signal_dbm: Some(
+                interface
+                    .rssiValue()
+                    .clamp(i32::MIN as isize, i32::MAX as isize) as i32,
+            ),
+        });
         let scanned = interface
             .scanForNetworksWithSSID_error(None)
             .map_err(|error| format!("CoreWLAN 扫描失败：{error}"))?;
@@ -154,7 +156,7 @@ fn scan_core_wlan() -> Result<Vec<WifiNetwork>, String> {
                 .map(|value| value.to_string().to_ascii_lowercase())
                 .filter(|value| is_mac_address(value))
                 .unwrap_or_else(|| synthetic_bssid(&ssid, channel, networks.len()));
-            let mut parsed = make_network(
+            let parsed = make_network(
                 ssid.clone(),
                 bssid.clone(),
                 network
@@ -164,10 +166,10 @@ fn scan_core_wlan() -> Result<Vec<WifiNetwork>, String> {
                 core_wlan_security(&network),
                 None,
             );
-            parsed.is_connected =
-                current_bssid.as_deref() == Some(&bssid) || current_ssid.as_deref() == Some(&ssid);
             networks.push(parsed);
         }
+
+        mark_current_connection_from(&mut networks, current_connection.as_ref());
 
         Ok(networks)
     }
@@ -251,31 +253,9 @@ fn scan_raw() -> Result<(String, String), String> {
     ))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn scan_raw() -> Result<(String, String), String> {
-    match run_command(
-        "nmcli",
-        &[
-            "-t",
-            "-f",
-            "SSID,BSSID,CHAN,FREQ,SIGNAL,SECURITY",
-            "dev",
-            "wifi",
-            "list",
-            "--rescan",
-            "yes",
-        ],
-    ) {
-        Ok(raw) => Ok(("nmcli dev wifi list".to_string(), raw)),
-        Err(nmcli_error) => run_command("iw", &["dev", "scan"])
-            .map(|raw| ("iw dev scan".to_string(), raw))
-            .map_err(|iw_error| format!("{nmcli_error}; fallback iw failed: {iw_error}")),
-    }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn scan_raw() -> Result<(String, String), String> {
-    Err("WiFi scanning is only implemented for macOS, Windows, and Linux.".to_string())
+    Err("WiFi scanning is only implemented for macOS and Windows.".to_string())
 }
 
 fn run_command(program: &str, args: &[&str]) -> Result<String, String> {
@@ -315,16 +295,7 @@ fn parse_by_platform(raw: &str) -> Vec<WifiNetwork> {
     parse_windows_netsh(raw)
 }
 
-#[cfg(target_os = "linux")]
-fn parse_by_platform(raw: &str) -> Vec<WifiNetwork> {
-    if raw.contains("BSS ") && raw.contains("signal:") {
-        parse_iw(raw)
-    } else {
-        parse_nmcli(raw)
-    }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn parse_by_platform(_raw: &str) -> Vec<WifiNetwork> {
     Vec::new()
 }
@@ -725,263 +696,26 @@ fn push_netsh_network(
     ));
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn parse_nmcli(raw: &str) -> Vec<WifiNetwork> {
-    raw.lines()
-        .filter_map(|line| {
-            let parts = split_nmcli_line(line);
-            if parts.len() < 6 {
-                return None;
-            }
-
-            let ssid = if parts[0].is_empty() {
-                "<hidden>".to_string()
-            } else {
-                parts[0].clone()
-            };
-            let bssid = parts[1].to_lowercase();
-            let channel = parse_channel(&parts[2])?;
-            let frequency_mhz = parts[3].parse::<u16>().ok();
-            let quality = parts[4].parse::<u8>().unwrap_or(0);
-            let signal_dbm = quality_to_dbm(quality);
-            let security = parts[5].clone();
-
-            Some(
-                make_network(ssid, bssid, signal_dbm, channel, security, Some(quality))
-                    .with_frequency(frequency_mhz),
-            )
-        })
-        .collect()
-}
-
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn parse_iw(raw: &str) -> Vec<WifiNetwork> {
-    let mut networks = Vec::new();
-    let mut bssid = String::new();
-    let mut ssid = String::from("<hidden>");
-    let mut channel = 0;
-    let mut freq: Option<u16> = None;
-    let mut signal_dbm: Option<i32> = None;
-    let mut security = String::from("Open");
-
-    for line in raw.lines() {
-        let trimmed = line.trim();
-
-        if trimmed.starts_with("BSS ") {
-            push_iw_network(
-                &mut networks,
-                &ssid,
-                &bssid,
-                signal_dbm,
-                channel,
-                freq,
-                &security,
-            );
-            bssid = trimmed
-                .split_whitespace()
-                .nth(1)
-                .unwrap_or_default()
-                .trim_end_matches("(on")
-                .to_lowercase();
-            ssid = String::from("<hidden>");
-            channel = 0;
-            freq = None;
-            signal_dbm = None;
-            security = String::from("Open");
-        } else if let Some(rest) = trimmed.strip_prefix("SSID:") {
-            ssid = rest.trim().to_string();
-            if ssid.is_empty() {
-                ssid = String::from("<hidden>");
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("freq:") {
-            freq = rest.trim().parse::<u16>().ok();
-            if let Some(freq_mhz) = freq {
-                channel = frequency_to_channel(freq_mhz);
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("signal:") {
-            signal_dbm = rest
-                .split_whitespace()
-                .next()
-                .and_then(|value| value.parse::<f32>().ok())
-                .map(|value| value.round() as i32);
-        } else if trimmed.starts_with("RSN:") {
-            security = String::from("WPA2/WPA3");
-        } else if trimmed.starts_with("WPA:") {
-            security = String::from("WPA");
-        }
-    }
-
-    push_iw_network(
-        &mut networks,
-        &ssid,
-        &bssid,
-        signal_dbm,
-        channel,
-        freq,
-        &security,
-    );
-
-    networks
-}
-
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn push_iw_network(
-    networks: &mut Vec<WifiNetwork>,
-    ssid: &str,
-    bssid: &str,
-    signal_dbm: Option<i32>,
-    channel: u16,
-    frequency_mhz: Option<u16>,
-    security: &str,
-) {
-    if !is_mac_address(bssid) {
-        return;
-    }
-
-    networks.push(
-        make_network(
-            ssid.to_string(),
-            bssid.to_string(),
-            signal_dbm.unwrap_or(-100),
-            channel,
-            security.to_string(),
-            None,
-        )
-        .with_frequency(frequency_mhz),
-    );
-}
-
-fn build_channel_stats(networks: &[WifiNetwork]) -> Vec<ChannelCongestion> {
-    let mut groups: BTreeMap<(String, u16), Vec<&WifiNetwork>> = BTreeMap::new();
+fn build_channel_distribution(networks: &[WifiNetwork]) -> Vec<ChannelDistribution> {
+    let mut groups: BTreeMap<(String, u16), usize> = BTreeMap::new();
 
     for network in networks {
         if network.channel == 0 {
             continue;
         }
-        groups
+        *groups
             .entry((network.band.clone(), network.channel))
-            .or_default()
-            .push(network);
+            .or_default() += 1;
     }
 
     groups
         .into_iter()
-        .map(|((band, channel), items)| {
-            let strongest_signal_dbm = items
-                .iter()
-                .map(|network| network.signal_dbm)
-                .max()
-                .unwrap_or(-100);
-            let base_load: u16 = items
-                .iter()
-                .map(|network| signal_load(network.signal_dbm))
-                .sum();
-            let overlap_load = if band == "2.4GHz" {
-                networks
-                    .iter()
-                    .filter(|network| network.band == "2.4GHz" && network.channel != channel)
-                    .filter(|network| network.channel.abs_diff(channel) <= 4)
-                    .map(|network| signal_load(network.signal_dbm) / 2)
-                    .sum()
-            } else {
-                0
-            };
-
-            ChannelCongestion {
-                band,
-                channel,
-                network_count: items.len(),
-                strongest_signal_dbm,
-                load_score: base_load.saturating_add(overlap_load).min(100),
-            }
+        .map(|((band, channel), network_count)| ChannelDistribution {
+            band,
+            channel,
+            network_count,
         })
         .collect()
-}
-
-fn build_recommendations(
-    networks: &[WifiNetwork],
-    channels: &[ChannelCongestion],
-) -> Vec<Recommendation> {
-    let mut recommendations = Vec::new();
-
-    if let Some(best) = networks
-        .iter()
-        .max_by_key(|network| network_score(network, channels))
-    {
-        let score = network_score(best, channels);
-        let congestion = channel_load(&best.band, best.channel, channels);
-        recommendations.push(Recommendation {
-            kind: "network".to_string(),
-            title: format!("推荐网络 {}", best.ssid),
-            detail: format!(
-                "{} 信号 {} dBm，{}，当前信道负载约 {}%。",
-                best.band, best.signal_dbm, best.security, congestion
-            ),
-            target_ssid: Some(best.ssid.clone()),
-            channel: Some(best.channel),
-            score,
-        });
-    }
-
-    if let Some(channel) = best_channel("2.4GHz", channels) {
-        recommendations.push(Recommendation {
-            kind: "channel".to_string(),
-            title: format!("2.4GHz 建议切到信道 {channel}"),
-            detail: "2.4GHz 优先使用 1/6/11，减少相邻信道重叠干扰。".to_string(),
-            target_ssid: None,
-            channel: Some(channel),
-            score: 100 - i32::from(channel_load("2.4GHz", channel, channels)),
-        });
-    }
-
-    if let Some(channel) = best_channel("5GHz", channels) {
-        recommendations.push(Recommendation {
-            kind: "channel".to_string(),
-            title: format!("5GHz 建议切到信道 {channel}"),
-            detail: "5GHz 可用信道更多，优先选择扫描中负载最低的非空闲冲突信道。".to_string(),
-            target_ssid: None,
-            channel: Some(channel),
-            score: 100 - i32::from(channel_load("5GHz", channel, channels)),
-        });
-    }
-
-    recommendations
-}
-
-fn best_channel(band: &str, channels: &[ChannelCongestion]) -> Option<u16> {
-    let candidates: Vec<u16> = if band == "2.4GHz" {
-        vec![1, 6, 11]
-    } else {
-        vec![36, 40, 44, 48, 149, 153, 157, 161]
-    };
-
-    candidates
-        .into_iter()
-        .min_by_key(|channel| channel_load(band, *channel, channels))
-}
-
-fn network_score(network: &WifiNetwork, channels: &[ChannelCongestion]) -> i32 {
-    let security_bonus = if network.security.to_lowercase().contains("open") {
-        -20
-    } else {
-        8
-    };
-    let band_bonus = match network.band.as_str() {
-        "6GHz" => 14,
-        "5GHz" => 10,
-        _ => 0,
-    };
-    let congestion_penalty = i32::from(channel_load(&network.band, network.channel, channels)) / 3;
-
-    network.quality as i32 + security_bonus + band_bonus - congestion_penalty
-}
-
-fn channel_load(band: &str, channel: u16, channels: &[ChannelCongestion]) -> u16 {
-    channels
-        .iter()
-        .find(|item| item.band == band && item.channel == channel)
-        .map(|item| item.load_score)
-        .unwrap_or(0)
 }
 
 fn make_network(
@@ -1020,43 +754,152 @@ fn make_network(
 }
 
 fn mark_current_connection(networks: &mut [WifiNetwork]) {
-    if networks.iter().any(|network| network.is_connected) {
+    if let Some(first_connected) = networks.iter().position(|network| network.is_connected) {
+        for (index, network) in networks.iter_mut().enumerate() {
+            network.is_connected = index == first_connected;
+        }
         return;
     }
 
-    let Some(current_ssid) = current_connected_ssid() else {
+    let current = current_connection();
+    mark_current_connection_from(networks, current.as_ref());
+}
+
+fn mark_current_connection_from(networks: &mut [WifiNetwork], current: Option<&CurrentConnection>) {
+    for network in networks.iter_mut() {
+        network.is_connected = false;
+    }
+
+    let Some(current) = current else {
         return;
     };
 
-    for network in networks {
-        if network.ssid == current_ssid {
+    if let Some(current_bssid) = current.bssid.as_deref() {
+        if let Some(network) = networks
+            .iter_mut()
+            .find(|network| network.bssid.eq_ignore_ascii_case(current_bssid))
+        {
             network.is_connected = true;
+            return;
         }
+    }
+
+    let ssid_matches: Vec<usize> = networks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, network)| (network.ssid == current.ssid).then_some(index))
+        .collect();
+    let channel_matches: Vec<usize> = current
+        .channel
+        .map(|channel| {
+            ssid_matches
+                .iter()
+                .copied()
+                .filter(|index| networks[*index].channel == channel)
+                .collect()
+        })
+        .unwrap_or_default();
+    let candidates = if channel_matches.is_empty() {
+        &ssid_matches
+    } else {
+        &channel_matches
+    };
+
+    let selected = current
+        .signal_dbm
+        .and_then(|signal_dbm| {
+            candidates
+                .iter()
+                .copied()
+                .min_by_key(|index| networks[*index].signal_dbm.abs_diff(signal_dbm))
+        })
+        .or_else(|| (candidates.len() == 1).then(|| candidates[0]));
+
+    if let Some(index) = selected {
+        networks[index].is_connected = true;
     }
 }
 
 #[cfg(target_os = "macos")]
-fn current_connected_ssid() -> Option<String> {
+fn current_connection() -> Option<CurrentConnection> {
+    unsafe {
+        let client = CWWiFiClient::sharedWiFiClient();
+        if let Some(interface) = client.interface() {
+            if let Some(ssid) = interface.ssid() {
+                return Some(CurrentConnection {
+                    ssid: ssid.to_string(),
+                    bssid: interface
+                        .bssid()
+                        .map(|value| value.to_string().to_ascii_lowercase()),
+                    channel: interface
+                        .wlanChannel()
+                        .map(|value| value.channelNumber().clamp(0, u16::MAX as isize) as u16),
+                    signal_dbm: Some(
+                        interface
+                            .rssiValue()
+                            .clamp(i32::MIN as isize, i32::MAX as isize)
+                            as i32,
+                    ),
+                });
+            }
+        }
+    }
+
     let device = macos_wifi_device()?;
     let raw = run_command("networksetup", &["-getairportnetwork", &device]).ok()?;
-    parse_networksetup_current_ssid(&raw)
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn current_connected_ssid() -> Option<String> {
-    None
+    parse_networksetup_current_ssid(&raw).map(|ssid| CurrentConnection {
+        ssid,
+        bssid: None,
+        channel: None,
+        signal_dbm: None,
+    })
 }
 
 #[cfg(target_os = "windows")]
-fn current_connected_ssid() -> Option<String> {
+fn current_connection() -> Option<CurrentConnection> {
     let raw = run_command("netsh", &["wlan", "show", "interfaces"]).ok()?;
-    parse_netsh_current_ssid(&raw)
+    parse_netsh_current_connection(&raw)
 }
 
-#[cfg(target_os = "linux")]
-fn current_connected_ssid() -> Option<String> {
-    let raw = run_command("nmcli", &["-t", "-f", "ACTIVE,SSID", "dev", "wifi", "list"]).ok()?;
-    parse_nmcli_current_ssid(&raw)
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn current_connection() -> Option<CurrentConnection> {
+    None
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_netsh_current_connection(raw: &str) -> Option<CurrentConnection> {
+    let mut connected = false;
+    let mut ssid = None;
+    let mut bssid = None;
+    let mut channel = None;
+    let mut signal_dbm = None;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("State") || trimmed.starts_with("状态") {
+            connected = value_after_colon(trimmed)
+                .map(is_connected_netsh_state)
+                .unwrap_or(false);
+        } else if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") {
+            ssid = value_after_colon(trimmed).map(str::to_string);
+        } else if trimmed.starts_with("BSSID") {
+            bssid = value_after_colon(trimmed).map(|value| value.to_ascii_lowercase());
+        } else if trimmed.starts_with("Channel") || trimmed.starts_with("信道") {
+            channel = value_after_colon(trimmed).and_then(parse_channel);
+        } else if trimmed.starts_with("Signal") || trimmed.starts_with("信号") {
+            signal_dbm = value_after_colon(trimmed)
+                .and_then(|value| value.trim_end_matches('%').parse::<u8>().ok())
+                .map(quality_to_dbm);
+        }
+    }
+
+    connected.then_some(CurrentConnection {
+        ssid: ssid.filter(|value| !value.is_empty())?,
+        bssid: bssid.filter(|value| is_mac_address(value)),
+        channel,
+        signal_dbm,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -1102,74 +945,6 @@ fn parse_networksetup_current_ssid(raw: &str) -> Option<String> {
         .split_once(": ")
         .map(|(_, ssid)| ssid.trim().to_string())
         .filter(|ssid| !ssid.is_empty())
-}
-
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-fn parse_netsh_current_ssid(raw: &str) -> Option<String> {
-    raw.lines().find_map(|line| {
-        let trimmed = line.trim();
-        if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") {
-            value_after_colon(trimmed)
-                .map(str::to_string)
-                .filter(|ssid| !ssid.is_empty())
-        } else {
-            None
-        }
-    })
-}
-
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn parse_nmcli_current_ssid(raw: &str) -> Option<String> {
-    raw.lines().find_map(|line| {
-        let parts = split_nmcli_line(line);
-        if parts.len() >= 2 && parts[0] == "yes" {
-            Some(parts[1].clone()).filter(|ssid| !ssid.is_empty())
-        } else {
-            None
-        }
-    })
-}
-
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-trait WithFrequency {
-    fn with_frequency(self, frequency_mhz: Option<u16>) -> Self;
-}
-
-impl WithFrequency for WifiNetwork {
-    fn with_frequency(mut self, frequency_mhz: Option<u16>) -> Self {
-        if let Some(frequency_mhz) = frequency_mhz {
-            self.frequency_mhz = frequency_mhz;
-            self.band = band_from_frequency(frequency_mhz);
-            if self.channel == 0 {
-                self.channel = frequency_to_channel(frequency_mhz);
-            }
-        }
-        self
-    }
-}
-
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn split_nmcli_line(line: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut current = String::new();
-    let mut escaped = false;
-
-    for ch in line.chars() {
-        if escaped {
-            current.push(ch);
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == ':' {
-            parts.push(current);
-            current = String::new();
-        } else {
-            current.push(ch);
-        }
-    }
-
-    parts.push(current);
-    parts
 }
 
 fn value_after_colon(line: &str) -> Option<&str> {
@@ -1256,17 +1031,6 @@ fn channel_to_frequency(channel: u16) -> u16 {
     }
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn frequency_to_channel(frequency_mhz: u16) -> u16 {
-    match frequency_mhz {
-        2412..=2472 => (frequency_mhz - 2407) / 5,
-        2484 => 14,
-        5160..=5885 => (frequency_mhz - 5000) / 5,
-        5955..=7115 => (frequency_mhz - 5950) / 5,
-        _ => 0,
-    }
-}
-
 fn band_from_frequency(frequency_mhz: u16) -> String {
     match frequency_mhz {
         2400..=2500 => "2.4GHz".to_string(),
@@ -1280,13 +1044,9 @@ fn dbm_to_quality(dbm: i32) -> u8 {
     (((dbm + 100) * 2).clamp(0, 100)) as u8
 }
 
-#[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn quality_to_dbm(quality: u8) -> i32 {
     (i32::from(quality) / 2) - 100
-}
-
-fn signal_load(dbm: i32) -> u16 {
-    dbm_to_quality(dbm).max(8) as u16
 }
 
 #[cfg(test)]
@@ -1320,25 +1080,20 @@ mod tests {
     }
 
     #[test]
-    fn parses_nmcli_escaped_bssid() {
-        let raw = "Office:AA\\:BB\\:CC\\:DD\\:EE\\:FF:149:5745:94:WPA2\n";
-
-        let rows = parse_nmcli(raw);
-
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].bssid, "aa:bb:cc:dd:ee:ff");
-        assert_eq!(rows[0].signal_dbm, -53);
-    }
-
-    #[test]
-    fn parses_current_ssid_from_netsh_interfaces() {
+    fn parses_current_connection_from_netsh_interfaces() {
         let raw = r#"Name                   : Wi-Fi
 State                  : connected
 SSID                   : Studio-5G
 BSSID                  : aa:bb:cc:dd:ee:ff
+Channel                : 149
+Signal                 : 86%
 "#;
 
-        assert_eq!(parse_netsh_current_ssid(raw).as_deref(), Some("Studio-5G"));
+        let current = parse_netsh_current_connection(raw).expect("connected WiFi");
+        assert_eq!(current.ssid, "Studio-5G");
+        assert_eq!(current.bssid.as_deref(), Some("aa:bb:cc:dd:ee:ff"));
+        assert_eq!(current.channel, Some(149));
+        assert_eq!(current.signal_dbm, Some(-57));
     }
 
     #[test]
@@ -1419,13 +1174,6 @@ SSID 2 : Cafe Guest
         assert!(is_mac_address(&rows[0].bssid));
         assert_eq!(rows[1].ssid, "Cafe Guest");
         assert!(rows[1].is_open);
-    }
-
-    #[test]
-    fn parses_current_ssid_from_nmcli_active_list() {
-        let raw = "no:Guest\\:Lobby\nyes:Studio\\:5G\n";
-
-        assert_eq!(parse_nmcli_current_ssid(raw).as_deref(), Some("Studio:5G"));
     }
 
     #[cfg(target_os = "macos")]
@@ -1567,18 +1315,18 @@ Ethernet Address: d0:11:e5:03:28:84
     }
 
     #[test]
-    fn ranks_recommendations_by_signal_congestion_and_band() {
-        let networks = vec![
+    fn marks_only_the_exact_connected_bssid() {
+        let mut networks = vec![
             make_network(
-                "2G".to_string(),
+                "Studio".to_string(),
                 "00:00:00:00:00:01".to_string(),
                 -43,
-                6,
+                149,
                 "WPA2".to_string(),
                 None,
             ),
             make_network(
-                "5G".to_string(),
+                "Studio".to_string(),
                 "00:00:00:00:00:02".to_string(),
                 -55,
                 149,
@@ -1586,10 +1334,77 @@ Ethernet Address: d0:11:e5:03:28:84
                 None,
             ),
         ];
-        let channels = build_channel_stats(&networks);
-        let recommendations = build_recommendations(&networks, &channels);
+        let current = CurrentConnection {
+            ssid: "Studio".to_string(),
+            bssid: Some("00:00:00:00:00:02".to_string()),
+            channel: Some(149),
+            signal_dbm: Some(-55),
+        };
 
-        assert!(!recommendations.is_empty());
-        assert_eq!(recommendations[0].kind, "network");
+        mark_current_connection_from(&mut networks, Some(&current));
+
+        assert!(!networks[0].is_connected);
+        assert!(networks[1].is_connected);
+    }
+
+    #[test]
+    fn uses_channel_and_signal_when_the_current_bssid_is_unavailable() {
+        let mut networks = vec![
+            make_network(
+                "Studio".to_string(),
+                "00:00:00:00:00:01".to_string(),
+                -43,
+                36,
+                "WPA2".to_string(),
+                None,
+            ),
+            make_network(
+                "Studio".to_string(),
+                "00:00:00:00:00:02".to_string(),
+                -58,
+                149,
+                "WPA2".to_string(),
+                None,
+            ),
+        ];
+        let current = CurrentConnection {
+            ssid: "Studio".to_string(),
+            bssid: None,
+            channel: Some(149),
+            signal_dbm: Some(-57),
+        };
+
+        mark_current_connection_from(&mut networks, Some(&current));
+
+        assert!(!networks[0].is_connected);
+        assert!(networks[1].is_connected);
+    }
+
+    #[test]
+    fn counts_scanned_bssids_per_channel_without_inferring_load() {
+        let networks = vec![
+            make_network(
+                "Studio".to_string(),
+                "00:00:00:00:00:01".to_string(),
+                -43,
+                149,
+                "WPA2".to_string(),
+                None,
+            ),
+            make_network(
+                "Guest".to_string(),
+                "00:00:00:00:00:02".to_string(),
+                -55,
+                149,
+                "WPA2".to_string(),
+                None,
+            ),
+        ];
+        let distribution = build_channel_distribution(&networks);
+
+        assert_eq!(distribution.len(), 1);
+        assert_eq!(distribution[0].band, "5GHz");
+        assert_eq!(distribution[0].channel, 149);
+        assert_eq!(distribution[0].network_count, 2);
     }
 }

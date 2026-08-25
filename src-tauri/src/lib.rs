@@ -6,6 +6,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, Runtime, WindowEvent,
 };
+use tauri_plugin_opener::OpenerExt;
 
 const SHOW_PANEL_MENU_ID: &str = "show_control_panel";
 const QUIT_MENU_ID: &str = "quit";
@@ -14,6 +15,28 @@ const QUIT_MENU_ID: &str = "quit";
 #[tauri::command(async)]
 fn scan_wifi() -> Result<wifi::ScanResult, String> {
     wifi::scan()
+}
+
+#[tauri::command]
+fn open_wifi_settings(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let settings_url = "x-apple.systempreferences:com.apple.wifi-settings-extension";
+
+    #[cfg(target_os = "windows")]
+    let settings_url = "ms-settings:network-wifi";
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        app.opener()
+            .open_url(settings_url, None::<&str>)
+            .map_err(|error| format!("无法打开系统 WiFi 设置：{error}"))
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = app;
+        Err("Poliwave 仅支持在 macOS 和 Windows 中打开 WiFi 设置。".to_string())
+    }
 }
 
 fn show_control_panel<R: Runtime>(app: &tauri::AppHandle<R>) {
@@ -91,7 +114,7 @@ pub fn run() {
                 hide_control_panel(window.app_handle());
             }
         })
-        .invoke_handler(tauri::generate_handler![scan_wifi])
+        .invoke_handler(tauri::generate_handler![scan_wifi, open_wifi_settings])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {

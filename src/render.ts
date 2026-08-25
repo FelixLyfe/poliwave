@@ -1,20 +1,20 @@
-import { createIcons, Radar, RadioTower, Sparkles, Wifi } from "lucide";
+import { CircleCheck, createIcons, Radar, ShieldAlert, Signal, Wifi, WifiOff } from "lucide";
 import { buildCurveSvg } from "./chart";
+import { buildConnectionStatus } from "./connection";
 import {
   clamp,
   escapeAttr,
   escapeHtml,
   formatSourceLabel,
   formatTime,
-  getBusiestChannelLabel,
-  loadClass,
   signalClass,
 } from "./format";
-import { getSelectedNetwork, type AppState } from "./state";
-import type { Band, ChannelCongestion, Recommendation, WifiNetwork } from "./types";
+import { getCurrentNetwork, getSelectedNetwork, type AppState } from "./state";
+import type { Band, ChannelDistribution, WifiNetwork } from "./types";
 
 export interface RenderHandlers {
   onSelectNetwork(bssid: string | undefined): void;
+  onOpenWifiSettings(): void;
 }
 
 export function mountShell(root: HTMLElement): void {
@@ -38,12 +38,12 @@ export function mountShell(root: HTMLElement): void {
             <strong id="networkCount">0</strong>
           </article>
           <article class="metric">
-            <span>最佳信号</span>
-            <strong id="bestSignal">--</strong>
+            <span>当前信号</span>
+            <strong id="currentSignal">--</strong>
           </article>
           <article class="metric">
-            <span>拥堵信道</span>
-            <strong id="busyChannel">--</strong>
+            <span>当前频段</span>
+            <strong id="currentBand">--</strong>
           </article>
           <article class="metric source-metric">
             <span>数据源</span>
@@ -89,28 +89,25 @@ export function mountShell(root: HTMLElement): void {
           </section>
 
           <section class="insight-grid">
-            <div class="panel recommendation-panel">
+            <div class="panel connection-panel">
               <div class="panel-head">
                 <div>
-                  <h2>建议</h2>
+                  <h2>连接状态</h2>
                 </div>
-                <i data-lucide="sparkles"></i>
+                <i data-lucide="wifi"></i>
               </div>
-              <div id="recommendations" class="recommendations empty-state">等待扫描结果</div>
+              <div id="connectionStatus" class="connection-status-list empty-state">等待扫描结果</div>
             </div>
 
-            <div class="panel congestion-panel">
+            <div class="panel distribution-panel">
               <div class="panel-head">
                 <div>
-                  <h2>信道拥堵</h2>
+                  <p class="panel-label">扫描数量，不代表实际信道负载</p>
+                  <h2>周边网络分布</h2>
                 </div>
-                <div class="legend">
-                  <span><b class="legend-dot low"></b>低</span>
-                  <span><b class="legend-dot mid"></b>中</span>
-                  <span><b class="legend-dot high"></b>高</span>
-                </div>
+                <span class="stamp">扫描估算</span>
               </div>
-              <div id="channelChart" class="channel-chart empty-state">暂无信道数据</div>
+              <div id="channelDistribution" class="channel-chart empty-state">暂无分布数据</div>
             </div>
           </section>
         </section>
@@ -140,22 +137,23 @@ export function render(state: AppState, handlers: RenderHandlers): void {
 
   const scan = state.scan;
   const selected = getSelectedNetwork(state);
+  const current = getCurrentNetwork(state);
 
   setText("networkCount", scan ? String(scan.networks.length) : "0");
-  setText("bestSignal", scan?.networks[0] ? `${scan.networks[0].signalDbm} dBm` : "--");
-  setText("busyChannel", scan ? getBusiestChannelLabel(scan.channels) : "--");
+  setText("currentSignal", current ? `${current.signalDbm} dBm` : scan ? "未连接" : "--");
+  setText("currentBand", current?.band ?? (scan ? "未连接" : "--"));
   const sourceLabel = scan ? formatSourceLabel(scan.source) : state.lastError ? "扫描失败" : "待扫描";
   setText("scanSource", sourceLabel);
   mustGet<HTMLElement>("scanSource").title = scan?.source ?? sourceLabel;
   setText("scanTime", scan ? formatTime(scan.scannedAt) : "--");
 
   renderNetworks(state, scan?.networks ?? [], handlers);
-  renderRecommendations(state, scan?.recommendations ?? []);
-  renderChannels(state, scan?.channels ?? []);
+  renderConnectionStatus(state, current, handlers);
+  renderChannelDistribution(state, scan?.channelDistribution ?? [], current);
   renderCurve(state, selected);
   renderSelectedDetail(selected);
 
-  createIcons({ icons: { Radar, RadioTower, Sparkles, Wifi } });
+  createIcons({ icons: { CircleCheck, Radar, ShieldAlert, Signal, Wifi, WifiOff } });
 }
 
 export function syncAutoScanInput(input: Pick<HTMLInputElement, "checked">, autoScan: boolean): void {
@@ -188,7 +186,7 @@ function renderNetworks(state: AppState, networks: WifiNetwork[], handlers: Rend
       const selected = network.bssid === state.selectedBssid;
       const connected = network.isConnected;
       return `
-        <button class="network-row ${selected ? "selected" : ""} ${connected ? "connected" : ""}" type="button" role="option" data-bssid="${escapeAttr(network.bssid)}" aria-selected="${selected}" aria-label="选择 ${escapeAttr(network.ssid)}，信号 ${network.signalDbm} dBm" tabindex="${selected ? "0" : "-1"}">
+        <button class="network-row ${selected ? "selected" : ""} ${connected ? "connected" : ""}" type="button" role="option" data-bssid="${escapeAttr(network.bssid)}" aria-selected="${selected}" aria-label="查看 ${escapeAttr(network.ssid)} 的信号详情，信号 ${network.signalDbm} dBm" tabindex="${selected ? "0" : "-1"}">
           <span class="signal-mark ${signalClass(network.signalDbm)}"></span>
           <span class="network-main">
             <span class="network-title">
@@ -231,48 +229,69 @@ function renderNetworks(state: AppState, networks: WifiNetwork[], handlers: Rend
   }
 }
 
-function renderRecommendations(state: AppState, recommendations: Recommendation[]): void {
-  const root = mustGet<HTMLDivElement>("recommendations");
+function renderConnectionStatus(
+  state: AppState,
+  current: WifiNetwork | undefined,
+  handlers: RenderHandlers,
+): void {
+  const root = mustGet<HTMLDivElement>("connectionStatus");
 
-  if (!recommendations.length) {
-    root.className = "recommendations empty-state";
-    root.textContent = state.busy ? "正在生成建议" : "等待扫描结果";
+  if (!state.scan) {
+    root.className = "connection-status-list empty-state";
+    root.textContent = state.busy ? "正在读取当前连接" : "等待扫描结果";
     return;
   }
 
-  root.className = "recommendations";
-  root.innerHTML = recommendations
-    .map((item) => {
-      const icon = item.kind === "network" ? "wifi" : "radio-tower";
-      return `
-        <article class="recommendation">
-          <i data-lucide="${icon}"></i>
+  const items = buildConnectionStatus(current);
+  root.className = "connection-status-list";
+  root.innerHTML = `${items
+    .map(
+      (item) => `
+        <article class="connection-status-item ${item.tone}">
+          <i data-lucide="${item.icon}"></i>
           <div>
             <strong>${escapeHtml(item.title)}</strong>
             <p>${escapeHtml(item.detail)}</p>
+            ${
+              item.canOpenWifiSettings
+                ? '<button class="status-action" type="button" data-action="open-wifi-settings">打开 WiFi 设置</button>'
+                : ""
+            }
           </div>
-          <span>${Math.round(item.score)}</span>
         </article>
-      `;
-    })
-    .join("");
+      `,
+    )
+    .join("")}${
+      state.settingsError
+        ? `<p class="status-error" role="alert">${escapeHtml(state.settingsError)}</p>`
+        : ""
+    }`;
+
+  root.querySelector<HTMLButtonElement>('[data-action="open-wifi-settings"]')?.addEventListener("click", () => {
+    handlers.onOpenWifiSettings();
+  });
 }
 
-function renderChannels(state: AppState, channels: ChannelCongestion[]): void {
-  const root = mustGet<HTMLDivElement>("channelChart");
+function renderChannelDistribution(
+  state: AppState,
+  distribution: ChannelDistribution[],
+  current: WifiNetwork | undefined,
+): void {
+  const root = mustGet<HTMLDivElement>("channelDistribution");
 
-  if (!channels.length) {
+  if (!distribution.length) {
     root.className = "channel-chart empty-state";
-    root.textContent = state.busy ? "正在计算信道负载" : "暂无信道数据";
+    root.textContent = state.busy ? "正在整理周边网络" : "暂无分布数据";
     return;
   }
 
   const bands: Band[] = ["2.4GHz", "5GHz", "6GHz"];
+  const maxCount = Math.max(...distribution.map((item) => item.networkCount), 1);
   root.className = "channel-chart";
   root.innerHTML = bands
     .map((band) => {
-      const items = channels
-        .filter((channel) => channel.band === band)
+      const items = distribution
+        .filter((item) => item.band === band)
         .sort((a, b) => a.channel - b.channel);
       if (!items.length) {
         return "";
@@ -283,14 +302,19 @@ function renderChannels(state: AppState, channels: ChannelCongestion[]): void {
           <div class="band-label">${band}</div>
           <div class="channel-bars">
             ${items
-              .map(
-                (item) => `
-                  <div class="channel-item" title="CH ${item.channel}, ${item.networkCount} networks, ${item.loadScore}% load">
-                    <div class="bar ${loadClass(item.loadScore)}" style="height:${Math.max(10, item.loadScore)}%"></div>
+              .map((item) => {
+                const isCurrent = current?.band === item.band && current.channel === item.channel;
+                const height = Math.max(18, Math.round((item.networkCount / maxCount) * 100));
+                return `
+                  <div class="channel-item ${isCurrent ? "current" : ""}" title="CH ${item.channel}，本次扫描到 ${item.networkCount} 个 WiFi" aria-label="信道 ${item.channel}，本次扫描到 ${item.networkCount} 个 WiFi${isCurrent ? "，当前连接所在信道" : ""}">
+                    <div class="channel-value">
+                      <b>${item.networkCount}</b>
+                      <div class="bar" style="height:${height}%"></div>
+                    </div>
                     <span>${item.channel}</span>
                   </div>
-                `,
-              )
+                `;
+              })
               .join("")}
           </div>
         </div>
@@ -335,7 +359,7 @@ function renderSelectedDetail(network: WifiNetwork | undefined): void {
     <div><span>频段</span><strong>${network.band}</strong></div>
     <div><span>安全</span><strong>${escapeHtml(network.security)}</strong></div>
     <div><span>信号质量</span><strong>${network.quality}%</strong></div>
-    <div><span>系统状态</span><strong>${network.isConnected ? "当前使用" : "未使用"}</strong></div>
+    <div><span>系统状态</span><strong>${network.isConnected ? "当前使用" : "周边网络"}</strong></div>
   `;
   root.dataset.bssid = network.bssid;
 

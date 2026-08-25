@@ -14,29 +14,17 @@ export interface WifiNetwork {
   isConnected: boolean;
 }
 
-export interface ChannelCongestion {
+export interface ChannelDistribution {
   band: Band;
   channel: number;
   networkCount: number;
-  strongestSignalDbm: number;
-  loadScore: number;
-}
-
-export interface Recommendation {
-  kind: "network" | "channel" | string;
-  title: string;
-  detail: string;
-  targetSsid?: string | null;
-  channel?: number | null;
-  score: number;
 }
 
 export interface ScanResult {
   scannedAt: string;
   source: string;
   networks: WifiNetwork[];
-  channels: ChannelCongestion[];
-  recommendations: Recommendation[];
+  channelDistribution: ChannelDistribution[];
 }
 
 export interface HistoryPoint {

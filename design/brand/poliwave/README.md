@@ -6,7 +6,7 @@ product palette: dark charcoal green `#0D1B19`, forest teal `#184A3F`, and mint
 
 Production exports are generated from this file:
 
-- `src-tauri/icons/`: macOS, Windows, Linux, and tray icons
+- `src-tauri/icons/`: macOS, Windows, and tray icons
 - `public/icon.png`: application shell and browser favicon
 - `site/assets/icon.png`: website favicon and footer mark
 

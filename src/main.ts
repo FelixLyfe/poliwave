@@ -1,4 +1,4 @@
-import { fetchScan } from "./ipc";
+import { fetchScan, openWifiSettings } from "./ipc";
 import { mountShell, render, type RenderHandlers } from "./render";
 import { createInitialState, ingestHistory } from "./state";
 import "./styles.css";
@@ -18,6 +18,14 @@ const handlers: RenderHandlers = {
   onSelectNetwork(bssid) {
     state.selectedBssid = bssid;
     rerender();
+  },
+  onOpenWifiSettings() {
+    state.settingsError = undefined;
+    rerender();
+    void openWifiSettings().catch((error) => {
+      state.settingsError = error instanceof Error ? error.message : String(error);
+      rerender();
+    });
   },
 };
 

@@ -9,6 +9,7 @@ export interface AppState {
   autoScan: boolean;
   busy: boolean;
   lastError?: string;
+  settingsError?: string;
 }
 
 export function createInitialState(): AppState {
@@ -32,4 +33,8 @@ export function ingestHistory(state: AppState, scan: ScanResult): void {
 export function getSelectedNetwork(state: AppState): WifiNetwork | undefined {
   const networks = state.scan?.networks ?? [];
   return networks.find((network) => network.bssid === state.selectedBssid) ?? networks[0];
+}
+
+export function getCurrentNetwork(state: AppState): WifiNetwork | undefined {
+  return state.scan?.networks.find((network) => network.isConnected);
 }

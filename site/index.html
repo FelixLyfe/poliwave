@@ -3,22 +3,22 @@
      LANDING PAGE · 中文 · parchment design system
      Screen-first product landing page with interactive gallery
      Sections: Hero · Gallery · Features · Principles · Pricing · FAQ · Footer
-     No PDF output — designed for browser delivery via Vercel / Netlify / static host
+     No PDF output, designed for browser delivery via Vercel / Netlify / static host
      ================================================================== -->
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <title>Poliwave · 看清每一格信号</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Poliwave 是一款基于 Tauri 2 + Rust 的开源桌面应用：扫描周围 WiFi、分析信道拥堵、绘制 RSSI 历史曲线，并给出可解释的连接与信道建议。当前官方发布包支持 macOS、Windows；Linux 可从源码构建。">
+<meta name="description" content="Poliwave 是一款支持 macOS、Windows 的开源桌面应用：扫描周围 WiFi、绘制 RSSI 历史曲线、展示周边网络分布，并说明当前连接的信号与安全状态。">
 <meta property="og:title" content="Poliwave · 看清每一格信号">
-<meta property="og:description" content="开源桌面端 WiFi 信号分析器：信号排序、信道拥堵、RSSI 曲线与可解释的连接建议，全程本地运行。">
+<meta property="og:description" content="开源桌面端 WiFi 信号分析器：信号排序、RSSI 曲线、周边网络分布与当前连接状态，全程本地运行。">
 <meta property="og:image" content="https://felixlyfe.github.io/poliwave/assets/shot-dashboard.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://felixlyfe.github.io/poliwave/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Poliwave · 看清每一格信号">
-<meta name="twitter:description" content="开源桌面端 WiFi 信号分析器：信号排序、信道拥堵、RSSI 曲线与可解释的连接建议，全程本地运行。">
+<meta name="twitter:description" content="开源桌面端 WiFi 信号分析器：信号排序、RSSI 曲线、周边网络分布与当前连接状态，全程本地运行。">
 <meta name="twitter:image" content="https://felixlyfe.github.io/poliwave/assets/shot-dashboard.png">
 <link rel="icon" type="image/png" sizes="256x256" href="assets/icon.png">
 <link rel="canonical" href="https://felixlyfe.github.io/poliwave/">
@@ -30,7 +30,7 @@
   "name": "Poliwave",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "macOS, Windows",
-  "description": "基于 Tauri 2 + Rust 的开源桌面端 WiFi 信号分析器：扫描周围 WiFi、分析信道拥堵、绘制 RSSI 历史曲线，并给出可解释的连接与信道建议。",
+  "description": "支持 macOS、Windows 的开源桌面端 WiFi 信号分析器：扫描周围 WiFi、绘制 RSSI 历史曲线、展示周边网络分布，并说明当前连接的信号与安全状态。",
   "url": "https://felixlyfe.github.io/poliwave/",
   "inLanguage": "zh-CN",
   "author": {
@@ -907,7 +907,7 @@ footer.foot {
   <!-- ============ Hero ============ -->
   <header class="hero">
     <div class="eyebrow">
-      <span>桌面端 WiFi 信号分析器 · <a class="version-link" href="https://github.com/FelixLyfe/poliwave/releases">v0.2.1</a></span>
+      <span>桌面端 WiFi 信号分析器 · <a class="version-link" href="https://github.com/FelixLyfe/poliwave/releases">v0.2.2</a></span>
       <span class="hero-links">
         <a href="https://github.com/FelixLyfe/poliwave" target="_blank" rel="noopener">GitHub</a>
       </span>
@@ -915,7 +915,7 @@ footer.foot {
 
     <h1>Poliwave</h1>
 
-    <p class="tagline">把看不见的无线信号变成看得见的连接决策。</p>
+    <p class="tagline">把看不见的无线信号变成看得懂的连接状态。</p>
 
     <div class="hero-tokens">
       <span><b>Tauri 2 + Rust</b> 原生内核</span>
@@ -934,13 +934,13 @@ footer.foot {
   <section>
     <div class="section-head">
       <h2 class="section-title">一屏看清你的无线环境</h2>
-      <p class="section-lede">截图来自应用内置 Demo 模式的真实渲染——下载后你看到的就是这个界面。</p>
+      <p class="section-lede">截图来自应用内置 Demo 模式的真实渲染，下载后看到的就是这个界面。</p>
     </div>
 
     <div class="gallery" data-gallery>
       <div class="gallery-frame" aria-live="polite">
-        <figure class="gallery-panel is-active" data-title="全景仪表盘" data-line="六个网络、两条频段、三条建议，一屏收齐。" aria-hidden="false">
-          <img src="assets/shot-dashboard.png" alt="Poliwave 全景仪表盘：网络列表、RSSI 曲线、建议与信道拥堵">
+        <figure class="gallery-panel is-active" data-title="全景仪表盘" data-line="六个网络、两条频段、当前连接状态与周边分布，一屏收齐。" aria-hidden="false">
+          <img src="assets/shot-dashboard.png" alt="Poliwave 全景仪表盘：网络列表、RSSI 曲线、连接状态与周边网络分布">
         </figure>
       </div>
       <div class="gallery-caption">
@@ -959,27 +959,27 @@ footer.foot {
     <ol class="features">
       <li>
         <p class="name">实时扫描<small>一键巡视周围的电波</small></p>
-        <p class="what">调用系统原生命令扫描周围网络，可选每 5 秒自动刷新。不装驱动、不要管理员权限，打开就能用——系统能看到的网络，它都能列出来。</p>
+        <p class="what">调用系统原生能力扫描周围网络，可选每 5 秒自动刷新。不装驱动，不要管理员权限，系统能看到的网络会直接列在窗口中。</p>
       </li>
       <li>
         <p class="name">信号排序<small>最强的信号排在最前面</small></p>
-        <p class="what">网络按 RSSI 降序排列，SSID、BSSID、信道、频率、频段、安全类型一行看全，当前已连接的网络高亮标出。挑网络不再靠猜格数。</p>
+        <p class="what">网络按 RSSI 降序排列，SSID、BSSID、信道、频率、频段、安全类型一行看全，当前连接的 BSSID 会单独标出。</p>
       </li>
       <li>
-        <p class="name">信道拥堵分析<small>看见空气里的交通状况</small></p>
-        <p class="what">按 2.4GHz / 5GHz / 6GHz 频段分组的信道负载柱状图，并计入 2.4GHz 相邻信道的重叠干扰。路由器该落在哪条信道，看一眼柱子就有答案。</p>
+        <p class="name">周边网络分布<small>看清网络集中在哪些信道</small></p>
+        <p class="what">按 2.4GHz、5GHz、6GHz 分组展示每个信道扫描到的 WiFi 数量。它用于观察周边分布，不把扫描数量解释成实际信道负载。</p>
       </li>
       <li>
         <p class="name">RSSI 历史曲线<small>记下信号的每一次起伏</small></p>
         <p class="what">前端按 BSSID 持续记录信号历史，为选中网络绘制 SVG 曲线。走到哪里信号开始衰减、哪个时段开始抖动，曲线替你记着。</p>
       </li>
       <li>
-        <p class="name">智能建议<small>结论给你，理由也给你</small></p>
-        <p class="what">基于确定性规则算法输出最多三条建议：连哪个网络、2.4GHz 和 5GHz 各切到哪条信道。每条建议附带评分与依据，可复现、可解释。</p>
+        <p class="name">连接状态<small>只分析当前正在使用的网络</small></p>
+        <p class="what">根据信号强度和安全类型显示最多两项状态。应用不会替你推荐陌生网络，也不会把无法执行的信道设置写成操作建议。</p>
       </li>
       <li>
-        <p class="name">应用内连接<small>从分析到连接，不出这扇窗</small></p>
-        <p class="what">看准目标后直接在弹窗里输入密码发起连接；源码构建的 Linux 版本支持企业网络用户名。底层调用系统命令完成。配合系统托盘常驻，关窗不退出。</p>
+        <p class="name">系统设置入口<small>需要切换时交给系统完成</small></p>
+        <p class="what">未连接 WiFi 或当前网络安全性较低时，可直接打开 macOS、Windows 的 WiFi 设置。应用不接管密码和连接流程，关窗后仍可在系统托盘中唤回。</p>
       </li>
     </ol>
   </section>
@@ -1002,14 +1002,14 @@ footer.foot {
         <span class="n">02</span>
         <div class="body">
           <b>规则可解释</b>
-          <span>建议来自确定性规则算法，不是 AI 黑盒。同样的无线环境，永远得到同样的结论。</span>
+          <span>连接状态来自固定信号阈值和安全类型，不是 AI 黑盒。每项结论都能回到当前连接的数据。</span>
         </div>
       </li>
       <li>
         <span class="n">03</span>
         <div class="body">
           <b>借系统的眼睛</b>
-          <span>扫描与连接全部调用各平台自带命令——airport、netsh、nmcli——不绕过系统权限模型。</span>
+          <span>扫描使用 CoreWLAN 或系统命令；需要切换网络时打开系统 WiFi 设置，不绕过系统权限模型。</span>
         </div>
       </li>
       <li>
@@ -1040,7 +1040,7 @@ footer.foot {
       <p class="price-vs">没有订阅、没有内购、没有广告。<span class="hl">MIT 许可证</span>下自由使用、修改与分发，没有付费版，也没有功能阉割。</p>
       <a class="btn-primary" href="https://github.com/FelixLyfe/poliwave/releases" target="_blank" rel="noopener">前往 GitHub 下载</a>
       <p class="price-trial">源码、构建脚本与发布产物都在 <a href="https://github.com/FelixLyfe/poliwave" target="_blank" rel="noopener">GitHub 仓库</a>公开。</p>
-      <p class="price-terms">官方发布包支持 macOS / Windows <span class="sep">·</span> Linux 可从源码构建 <span class="sep">·</span> Windows 构建未签名，首次运行可能出现 SmartScreen 提示</p>
+      <p class="price-terms">支持 macOS / Windows <span class="sep">·</span> Windows 构建未签名，首次运行可能出现 SmartScreen 提示</p>
     </div>
   </section>
 
@@ -1053,11 +1053,11 @@ footer.foot {
     <dl class="faq">
       <div class="faq-pair">
         <dt>和系统自带的 WiFi 列表有什么不同？</dt>
-        <dd>系统列表只告诉你"有哪些网络"；Poliwave 告诉你哪个值得连、哪条信道更空，以及信号随时间如何变化。</dd>
+        <dd>系统列表主要用于连接网络；Poliwave 补充展示 BSSID、信道、频率、RSSI 曲线、周边网络分布和当前连接状态。</dd>
       </div>
       <div class="faq-pair">
-        <dt>建议是 AI 生成的吗？</dt>
-        <dd>不是。全部建议来自本地确定性规则算法，不调用任何模型或外部 API，结果可复现、可解释。</dd>
+        <dt>连接状态是 AI 生成的吗？</dt>
+        <dd>不是。状态只使用本机读取的当前信号和安全类型，不调用任何模型或外部 API。</dd>
       </div>
       <div class="faq-pair">
         <dt>我的扫描数据会上传吗？</dt>
@@ -1065,11 +1065,11 @@ footer.foot {
       </div>
       <div class="faq-pair">
         <dt>它怎么拿到 WiFi 信息？</dt>
-        <dd>调用各平台自带命令：macOS 用 <code>airport</code>（新系统回退 <code>system_profiler</code>），Windows 用 <code>netsh</code>，Linux 用 <code>nmcli</code>（失败时回退 <code>iw</code>）。</dd>
+        <dd>macOS 优先使用 CoreWLAN，兼容扫描会使用系统工具；Windows 使用 <code>netsh</code>。</dd>
       </div>
       <div class="faq-pair">
-        <dt>Linux 有安装包吗？</dt>
-        <dd>目前没有官方 Linux 发布包。代码里保留了 Linux 扫描与连接实现，熟悉 Tauri/Rust 环境的用户可以从源码构建。</dd>
+        <dt>支持哪些系统？</dt>
+        <dd>当前支持 macOS 和 Windows，发布页提供对应安装包。</dd>
       </div>
       <div class="faq-pair">
         <dt>免费吗？</dt>
@@ -1081,7 +1081,7 @@ footer.foot {
       </div>
       <div class="faq-pair">
         <dt>用浏览器打开会怎样？</dt>
-        <dd>在非 Tauri 环境下应用自动进入 Demo 模式，用内置演示数据渲染完整界面——本页截图正是这样得来的。</dd>
+        <dd>在非 Tauri 环境下应用自动进入 Demo 模式，用内置演示数据渲染完整界面。本页截图正是这样生成的。</dd>
       </div>
     </dl>
     <p class="faq-tail">更多问题？欢迎到 <a href="https://github.com/FelixLyfe/poliwave/issues" target="_blank" rel="noopener">GitHub Issues</a> 提问。</p>

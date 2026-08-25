@@ -2549,7 +2549,7 @@ dependencies = [
 
 [[package]]
 name = "poliwave"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "objc2-core-location",

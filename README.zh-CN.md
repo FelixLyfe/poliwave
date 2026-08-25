@@ -11,15 +11,16 @@ Poliwave 是一款基于 Tauri + Rust 的桌面端 WiFi 信号分析器 MVP。
 - 通过 Rust 后端扫描附近的 WiFi 网络。
 - 按 RSSI 信号强度对网络进行排序。
 - 根据信道或频率识别 2.4GHz、5GHz 和 6GHz 频段。
-- 展示信道拥塞情况和信号负载。
+- 按信道展示本次扫描到的周边 WiFi 数量，不将其解释为实际信道负载。
 - 在前端记录 RSSI 历史，并为选中的 BSSID 绘制信号曲线。
-- 推荐应连接的 WiFi 以及应切换到的信道。
+- 根据当前连接的信号强度和安全类型显示连接状态，需要时可打开系统 WiFi 设置。
 
 ## 运行时扫描来源
 
+Poliwave 当前支持 macOS 和 Windows：
+
 - macOS：使用 CoreWLAN，并请求定位服务权限以读取真实 SSID；旧版系统命令仅作为兼容回退
 - Windows：`netsh wlan show networks mode=bssid`
-- Linux：`nmcli dev wifi list --rescan yes`，并在失败时回退到 `iw dev scan`
 
 在开发过程中如果用普通浏览器打开，应用会使用演示数据，以便在没有 Tauri 的情况下测试界面。
 
