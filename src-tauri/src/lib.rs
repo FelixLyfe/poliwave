@@ -196,7 +196,8 @@ mod tests {
             .as_str()
             .expect("macOS bundles must reference an entitlements file");
         let entitlements = fs::read_to_string(manifest_dir.join(entitlement_path))
-            .expect("the configured macOS entitlements file should be readable");
+            .expect("the configured macOS entitlements file should be readable")
+            .replace('\r', "");
 
         assert!(
             entitlements
