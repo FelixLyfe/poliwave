@@ -114,7 +114,7 @@ fn scan_macos() -> Result<(String, Vec<WifiNetwork>), String> {
 
     if networks.is_empty() {
         Err(format!(
-            "{core_wlan_error} 请在系统设置 > 隐私与安全性 > 定位服务中允许 WiFi Analyzer。"
+            "{core_wlan_error} 请在系统设置 > 隐私与安全性 > 定位服务中允许 Poliwave。"
         ))
     } else {
         Ok((source, networks))

@@ -24,7 +24,7 @@ export function mountShell(root: HTMLElement): void {
         <div class="app-lockup">
           <span class="app-icon" aria-hidden="true"><i data-lucide="wifi"></i></span>
           <div class="app-title">
-            <h1>WiFi 分析器</h1>
+            <h1>Poliwave</h1>
             <p id="scanActivity" class="scan-activity" role="status" aria-live="polite">
               <span class="activity-dot" aria-hidden="true"></span>
               <span>准备扫描</span>

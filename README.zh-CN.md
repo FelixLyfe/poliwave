@@ -1,10 +1,10 @@
-# WiFi 分析器
+# Poliwave
 
 [English](./README.md) | 简体中文
 
-基于 Tauri + Rust 的桌面端 WiFi 信号分析器 MVP。
+Poliwave 是一款基于 Tauri + Rust 的桌面端 WiFi 信号分析器 MVP。
 
-![WiFi 分析器桌面端界面](./wifi-analyzer-desktop.png)
+![Poliwave 桌面端界面](./poliwave-desktop.png)
 
 ## 功能特性
 
@@ -81,14 +81,14 @@ npm run tauri:build
 产物：
 
 ```text
-src-tauri/target/release/bundle/macos/WiFi Analyzer.app
+src-tauri/target/release/bundle/macos/Poliwave.app
 ```
 
 打包成便于分享的 macOS zip：
 
 ```bash
 cd src-tauri/target/release/bundle/macos
-ditto -c -k --sequesterRsrc --keepParent "WiFi Analyzer.app" "WiFi Analyzer.zip"
+ditto -c -k --sequesterRsrc --keepParent "Poliwave.app" "Poliwave.zip"
 ```
 
 ### 在 macOS 上构建 Windows x64 包
@@ -113,22 +113,22 @@ PATH="/opt/homebrew/opt/llvm/bin:$HOME/.cargo/bin:$PATH" \
 产物：
 
 ```text
-src-tauri/target/x86_64-pc-windows-msvc/release/wifi-analyzer.exe
+src-tauri/target/x86_64-pc-windows-msvc/release/poliwave.exe
 ```
 
 生成可分享的 Windows zip：
 
 ```bash
 mkdir -p release/windows-x64
-cp src-tauri/target/x86_64-pc-windows-msvc/release/wifi-analyzer.exe "release/windows-x64/WiFi Analyzer.exe"
+cp src-tauri/target/x86_64-pc-windows-msvc/release/poliwave.exe "release/windows-x64/Poliwave.exe"
 COPYFILE_DISABLE=1 LC_ALL=C LANG=C \
-  sh -c 'cd release && zip -X -r "WiFi-Analyzer-Windows-x64.zip" windows-x64'
+  sh -c 'cd release && zip -X -r "Poliwave-Windows-x64.zip" windows-x64'
 ```
 
 产物：
 
 ```text
-release/WiFi-Analyzer-Windows-x64.zip
+release/Poliwave-Windows-x64.zip
 ```
 
 Windows 构建未签名，首次打开时可能触发 SmartScreen 提示。
