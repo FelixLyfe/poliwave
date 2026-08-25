@@ -1,12 +1,12 @@
 [package]
-name = "wifi-analyzer"
-version = "0.1.7"
-description = "Desktop WiFi signal analyzer"
+name = "poliwave"
+version = "0.2.0"
+description = "Poliwave desktop WiFi signal analyzer"
 authors = ["Codex"]
 edition = "2021"
 
 [lib]
-name = "wifi_analyzer_lib"
+name = "poliwave_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

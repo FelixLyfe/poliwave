@@ -63,7 +63,7 @@ pub fn run() {
             TrayIconBuilder::with_id("main-tray")
                 .icon(tray_icon)
                 .icon_as_template(true)
-                .tooltip("WiFi Analyzer")
+                .tooltip("Poliwave")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {

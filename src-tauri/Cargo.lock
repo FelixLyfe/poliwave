@@ -2548,6 +2548,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "poliwave"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "objc2-core-location",
+ "objc2-core-wlan",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+]
+
+[[package]]
 name = "polling"
 version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4383,20 +4397,6 @@ dependencies = [
  "thiserror 2.0.18",
  "windows",
  "windows-core 0.61.2",
-]
-
-[[package]]
-name = "wifi-analyzer"
-version = "0.1.7"
-dependencies = [
- "chrono",
- "objc2-core-location",
- "objc2-core-wlan",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
 ]
 
 [[package]]
