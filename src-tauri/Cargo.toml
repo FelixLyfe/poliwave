@@ -1,6 +1,6 @@
 [package]
 name = "poliwave"
-version = "0.2.2"
+version = "0.3.0"
 description = "Poliwave desktop WiFi signal analyzer"
 authors = ["Codex"]
 edition = "2021"

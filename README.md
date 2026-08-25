@@ -14,6 +14,8 @@ Poliwave is a Tauri + Rust desktop WiFi signal analyzer MVP.
 - Show how many nearby WiFi BSSIDs were observed on each channel without treating the count as actual channel load.
 - Track RSSI history in the frontend and render a curve for the selected BSSID.
 - Describe the current connection using its signal strength and security type, with a shortcut to system WiFi settings when needed.
+- Diagnose WiFi, default gateway, DNS, and internet connectivity on demand, including latency and packet loss when available.
+- Distinguish location permission, disabled WiFi, missing-adapter, and generic scan failures, with guided recovery actions.
 
 ## Runtime scanning sources
 
@@ -23,6 +25,10 @@ Poliwave currently supports macOS and Windows:
 - Windows: `netsh wlan show networks mode=bssid`
 
 When opened in a normal browser during development, the app uses demo data so the UI can be tested without Tauri.
+
+## Diagnostics and privacy
+
+Nearby WiFi scan results stay in local memory and are never uploaded. Only when the user explicitly runs the one-click diagnostic does Poliwave make standard DNS, ICMP, and TCP connectivity probes. The current targets are `example.com`, `1.1.1.1`, and `223.5.5.5`. These probes do not upload scan results or user content, and TCP reachability is used when ICMP is unavailable.
 
 ## Local build
 

@@ -3,8 +3,11 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 #[cfg(target_os = "macos")]
-use objc2_core_location::CLLocationManager;
+use objc2_core_location::{CLAuthorizationStatus, CLLocationManager};
 #[cfg(target_os = "macos")]
 use objc2_core_wlan::{CWNetwork, CWSecurity, CWWiFiClient};
 
@@ -49,15 +52,95 @@ pub struct ScanResult {
     pub channel_distribution: Vec<ChannelDistribution>,
 }
 
-pub fn scan() -> Result<ScanResult, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScanIssueCode {
+    #[allow(dead_code)]
+    LocationPermissionRequired,
+    LocationPermissionDenied,
+    #[allow(dead_code)]
+    LocationServicesDisabled,
+    WifiDisabled,
+    AdapterUnavailable,
+    #[allow(dead_code)]
+    UnsupportedPlatform,
+    ScanFailed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScanRecoveryAction {
+    #[allow(dead_code)]
+    RequestLocationPermission,
+    OpenLocationSettings,
+    OpenWifiSettings,
+    Retry,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanError {
+    pub code: ScanIssueCode,
+    pub title: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_action: Option<ScanRecoveryAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+}
+
+impl ScanError {
+    fn new(
+        code: ScanIssueCode,
+        title: impl Into<String>,
+        message: impl Into<String>,
+        recovery_action: Option<ScanRecoveryAction>,
+        details: Option<String>,
+    ) -> Self {
+        Self {
+            code,
+            title: title.into(),
+            message: message.into(),
+            recovery_action,
+            details,
+        }
+    }
+
+    fn scan_failed(details: impl Into<String>) -> Self {
+        Self::new(
+            ScanIssueCode::ScanFailed,
+            "扫描失败",
+            "系统没有返回可用的 WiFi 扫描结果，请稍后重试。",
+            Some(ScanRecoveryAction::Retry),
+            Some(details.into()),
+        )
+    }
+}
+
+pub fn scan() -> Result<ScanResult, ScanError> {
     #[cfg(target_os = "macos")]
     let (source, mut networks) = scan_macos()?;
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     let (source, mut networks) = {
-        let (source, raw) = scan_raw()?;
-        (source, parse_by_platform(&raw))
+        let (source, raw) = scan_raw().map_err(|error| classify_windows_scan_error(&error))?;
+        let networks = parse_by_platform(&raw);
+        if networks.is_empty() {
+            if let Some(issue) = windows_scan_issue_from_text(&raw) {
+                return Err(issue);
+            }
+        }
+        (source, networks)
     };
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    return Err(ScanError::new(
+        ScanIssueCode::UnsupportedPlatform,
+        "当前系统暂不支持",
+        "Poliwave 的真实 WiFi 扫描目前仅支持 macOS 和 Windows。",
+        None,
+        None,
+    ));
 
     mark_current_connection(&mut networks);
 
@@ -88,7 +171,9 @@ pub fn request_location_authorization() {
 }
 
 #[cfg(target_os = "macos")]
-fn scan_macos() -> Result<(String, Vec<WifiNetwork>), String> {
+fn scan_macos() -> Result<(String, Vec<WifiNetwork>), ScanError> {
+    ensure_macos_scan_ready()?;
+
     let core_wlan_error = match scan_core_wlan() {
         Ok(networks) if has_displayable_ssid(&networks) => {
             return Ok(("CoreWLAN".to_string(), networks));
@@ -97,20 +182,100 @@ fn scan_macos() -> Result<(String, Vec<WifiNetwork>), String> {
         Err(error) => error,
     };
 
-    let (source, raw) = scan_raw()
-        .map_err(|fallback_error| format!("{core_wlan_error} 兼容扫描也失败：{fallback_error}"))?;
+    let (source, raw) = scan_raw().map_err(|fallback_error| {
+        ScanError::scan_failed(format!(
+            "{core_wlan_error} 兼容扫描也失败：{fallback_error}"
+        ))
+    })?;
     let networks: Vec<_> = parse_by_platform(&raw)
         .into_iter()
         .filter(|network| !is_non_displayable_ssid(&network.ssid))
         .collect();
 
     if networks.is_empty() {
-        Err(format!(
-            "{core_wlan_error} 请在系统设置 > 隐私与安全性 > 定位服务中允许 Poliwave。"
-        ))
+        Err(ScanError::scan_failed(core_wlan_error))
     } else {
         Ok((source, networks))
     }
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_macos_scan_ready() -> Result<(), ScanError> {
+    unsafe {
+        if !CLLocationManager::locationServicesEnabled_class() {
+            return Err(ScanError::new(
+                ScanIssueCode::LocationServicesDisabled,
+                "定位服务已关闭",
+                "macOS 需要定位服务才能向应用提供附近 WiFi 的真实名称。Poliwave 不会读取或保存您的位置。",
+                Some(ScanRecoveryAction::OpenLocationSettings),
+                None,
+            ));
+        }
+
+        let manager = CLLocationManager::new();
+        match manager.authorizationStatus() {
+            CLAuthorizationStatus::NotDetermined => {
+                return Err(ScanError::new(
+                    ScanIssueCode::LocationPermissionRequired,
+                    "需要定位权限",
+                    "允许 Poliwave 使用定位服务后，macOS 才会返回附近 WiFi 的真实名称。",
+                    Some(ScanRecoveryAction::RequestLocationPermission),
+                    None,
+                ));
+            }
+            CLAuthorizationStatus::Denied => {
+                return Err(ScanError::new(
+                    ScanIssueCode::LocationPermissionDenied,
+                    "定位权限已被拒绝",
+                    "请在系统设置的定位服务中允许 Poliwave，然后返回重新扫描。",
+                    Some(ScanRecoveryAction::OpenLocationSettings),
+                    None,
+                ));
+            }
+            CLAuthorizationStatus::Restricted => {
+                return Err(ScanError::new(
+                    ScanIssueCode::LocationPermissionDenied,
+                    "定位权限受到系统限制",
+                    "当前系统策略不允许 Poliwave 使用定位服务，请检查家长控制或设备管理策略。",
+                    Some(ScanRecoveryAction::OpenLocationSettings),
+                    None,
+                ));
+            }
+            CLAuthorizationStatus::AuthorizedAlways
+            | CLAuthorizationStatus::AuthorizedWhenInUse => {}
+            _ => {
+                return Err(ScanError::new(
+                    ScanIssueCode::LocationPermissionRequired,
+                    "无法确认定位权限",
+                    "请重新授权定位服务后再扫描。",
+                    Some(ScanRecoveryAction::RequestLocationPermission),
+                    None,
+                ));
+            }
+        }
+
+        let client = CWWiFiClient::sharedWiFiClient();
+        let interface = client.interface().ok_or_else(|| {
+            ScanError::new(
+                ScanIssueCode::AdapterUnavailable,
+                "未找到 WiFi 网卡",
+                "系统没有提供可用的 WiFi 网卡，请检查硬件或系统网络配置。",
+                Some(ScanRecoveryAction::Retry),
+                None,
+            )
+        })?;
+        if !interface.powerOn() {
+            return Err(ScanError::new(
+                ScanIssueCode::WifiDisabled,
+                "WiFi 已关闭",
+                "请先在系统设置中开启 WiFi，然后返回重新扫描。",
+                Some(ScanRecoveryAction::OpenWifiSettings),
+                None,
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -253,14 +418,71 @@ fn scan_raw() -> Result<(String, String), String> {
     ))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn scan_raw() -> Result<(String, String), String> {
-    Err("WiFi scanning is only implemented for macOS and Windows.".to_string())
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn classify_windows_scan_error(details: &str) -> ScanError {
+    windows_scan_issue_from_text(details).unwrap_or_else(|| ScanError::scan_failed(details))
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn windows_scan_issue_from_text(raw: &str) -> Option<ScanError> {
+    let normalized = raw.to_ascii_lowercase();
+
+    if normalized.contains("no wireless interface")
+        || raw.contains("没有无线接口")
+        || raw.contains("未找到无线接口")
+        || normalized.contains("wlansvc service is not running")
+        || normalized.contains("wireless autoconfig service")
+        || normalized.contains("wlansvc) is not running")
+    {
+        return Some(ScanError::new(
+            ScanIssueCode::AdapterUnavailable,
+            "未找到可用的 WiFi 网卡",
+            "Windows 没有提供可用的无线接口，请检查网卡、驱动或 WLAN AutoConfig 服务。",
+            Some(ScanRecoveryAction::Retry),
+            Some(raw.trim().to_string()),
+        ));
+    }
+
+    if normalized.contains("software off")
+        || normalized.contains("radio is off")
+        || raw.contains("软件关闭")
+        || raw.contains("无线电已关闭")
+    {
+        return Some(ScanError::new(
+            ScanIssueCode::WifiDisabled,
+            "WiFi 已关闭",
+            "请先在 Windows WiFi 设置中开启无线网络，然后返回重新扫描。",
+            Some(ScanRecoveryAction::OpenWifiSettings),
+            Some(raw.trim().to_string()),
+        ));
+    }
+
+    if normalized.contains("location permission")
+        || normalized.contains("access is denied")
+        || raw.contains("定位权限")
+        || raw.contains("位置权限")
+        || raw.contains("访问被拒绝")
+        || raw.contains("拒绝访问")
+    {
+        return Some(ScanError::new(
+            ScanIssueCode::LocationPermissionDenied,
+            "需要 Windows 定位权限",
+            "Windows 需要定位权限才能扫描附近 WiFi，请在隐私设置中允许定位访问。",
+            Some(ScanRecoveryAction::OpenLocationSettings),
+            Some(raw.trim().to_string()),
+        ));
+    }
+
+    None
 }
 
 fn run_command(program: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(program)
-        .args(args)
+    let mut command = Command::new(program);
+    command.args(args);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x0800_0000);
+
+    let output = command
         .output()
         .map_err(|err| format!("Failed to run {program}: {err}"))?;
 
@@ -820,6 +1042,10 @@ fn mark_current_connection_from(networks: &mut [WifiNetwork], current: Option<&C
     }
 }
 
+pub fn current_connection_name() -> Option<String> {
+    current_connection().map(|connection| connection.ssid)
+}
+
 #[cfg(target_os = "macos")]
 fn current_connection() -> Option<CurrentConnection> {
     unsafe {
@@ -1094,6 +1320,26 @@ Signal                 : 86%
         assert_eq!(current.bssid.as_deref(), Some("aa:bb:cc:dd:ee:ff"));
         assert_eq!(current.channel, Some(149));
         assert_eq!(current.signal_dbm, Some(-57));
+    }
+
+    #[test]
+    fn classifies_windows_scan_recovery_failures() {
+        let permission = classify_windows_scan_error(
+            "Access is denied. Location permission is required to access WLAN data.",
+        );
+        assert_eq!(permission.code, ScanIssueCode::LocationPermissionDenied);
+        assert_eq!(
+            permission.recovery_action,
+            Some(ScanRecoveryAction::OpenLocationSettings)
+        );
+
+        let wifi_off = windows_scan_issue_from_text("Radio status : Hardware On Software Off")
+            .expect("WiFi disabled issue");
+        assert_eq!(wifi_off.code, ScanIssueCode::WifiDisabled);
+
+        let adapter = windows_scan_issue_from_text("There is no wireless interface on the system.")
+            .expect("adapter issue");
+        assert_eq!(adapter.code, ScanIssueCode::AdapterUnavailable);
     }
 
     #[test]

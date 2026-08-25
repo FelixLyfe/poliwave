@@ -10,15 +10,15 @@
 <meta charset="utf-8">
 <title>Poliwave · 看清每一格信号</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Poliwave 是一款支持 macOS、Windows 的开源桌面应用：扫描周围 WiFi、绘制 RSSI 历史曲线、展示周边网络分布，并说明当前连接的信号与安全状态。">
+<meta name="description" content="Poliwave 是一款支持 macOS、Windows 的开源桌面应用：扫描周围 WiFi、绘制 RSSI 历史曲线、展示周边网络分布，并提供一键连接诊断与异常恢复向导。">
 <meta property="og:title" content="Poliwave · 看清每一格信号">
-<meta property="og:description" content="开源桌面端 WiFi 信号分析器：信号排序、RSSI 曲线、周边网络分布与当前连接状态，全程本地运行。">
+<meta property="og:description" content="开源桌面端 WiFi 信号分析器：信号排序、RSSI 曲线、周边网络分布、一键连接诊断与异常恢复向导。">
 <meta property="og:image" content="https://felixlyfe.github.io/poliwave/assets/shot-dashboard.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://felixlyfe.github.io/poliwave/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Poliwave · 看清每一格信号">
-<meta name="twitter:description" content="开源桌面端 WiFi 信号分析器：信号排序、RSSI 曲线、周边网络分布与当前连接状态，全程本地运行。">
+<meta name="twitter:description" content="开源桌面端 WiFi 信号分析器：信号排序、RSSI 曲线、周边网络分布、一键连接诊断与异常恢复向导。">
 <meta name="twitter:image" content="https://felixlyfe.github.io/poliwave/assets/shot-dashboard.png">
 <link rel="icon" type="image/png" sizes="256x256" href="assets/icon.png">
 <link rel="canonical" href="https://felixlyfe.github.io/poliwave/">
@@ -30,7 +30,7 @@
   "name": "Poliwave",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "macOS, Windows",
-  "description": "支持 macOS、Windows 的开源桌面端 WiFi 信号分析器：扫描周围 WiFi、绘制 RSSI 历史曲线、展示周边网络分布，并说明当前连接的信号与安全状态。",
+  "description": "支持 macOS、Windows 的开源桌面端 WiFi 信号分析器：扫描周围 WiFi、绘制 RSSI 历史曲线、展示周边网络分布，并提供一键连接诊断与异常恢复向导。",
   "url": "https://felixlyfe.github.io/poliwave/",
   "inLanguage": "zh-CN",
   "author": {
@@ -907,7 +907,7 @@ footer.foot {
   <!-- ============ Hero ============ -->
   <header class="hero">
     <div class="eyebrow">
-      <span>桌面端 WiFi 信号分析器 · <a class="version-link" href="https://github.com/FelixLyfe/poliwave/releases">v0.2.2</a></span>
+      <span>桌面端 WiFi 信号分析器 · <a class="version-link" href="https://github.com/FelixLyfe/poliwave/releases">v0.3.0</a></span>
       <span class="hero-links">
         <a href="https://github.com/FelixLyfe/poliwave" target="_blank" rel="noopener">GitHub</a>
       </span>
@@ -953,7 +953,7 @@ footer.foot {
   <!-- ============ Features ============ -->
   <section>
     <div class="section-head">
-      <h2 class="section-title">六件事，把无线环境讲清楚</h2>
+      <h2 class="section-title">八件事，把无线环境讲清楚</h2>
     </div>
 
     <ol class="features">
@@ -978,6 +978,14 @@ footer.foot {
         <p class="what">根据信号强度和安全类型显示最多两项状态。应用不会替你推荐陌生网络，也不会把无法执行的信道设置写成操作建议。</p>
       </li>
       <li>
+        <p class="name">一键连接诊断<small>从 WiFi 一路检查到互联网</small></p>
+        <p class="what">逐层检查当前 WiFi、默认网关、DNS 与互联网可达性，并在系统允许时显示延迟和丢包率；Ping 被屏蔽时会回退到 TCP 检查。</p>
+      </li>
+      <li>
+        <p class="name">异常恢复向导<small>知道为什么失败，也知道下一步</small></p>
+        <p class="what">区分定位权限、WiFi 关闭、无线网卡不可用和普通扫描失败，给出对应恢复步骤，并可直接打开相关系统设置后重试。</p>
+      </li>
+      <li>
         <p class="name">系统设置入口<small>需要切换时交给系统完成</small></p>
         <p class="what">未连接 WiFi 或当前网络安全性较低时，可直接打开 macOS、Windows 的 WiFi 设置。应用不接管密码和连接流程，关窗后仍可在系统托盘中唤回。</p>
       </li>
@@ -995,14 +1003,14 @@ footer.foot {
         <span class="n">01</span>
         <div class="body">
           <b>数据不出设备</b>
-          <span>扫描结果只活在内存里。应用不发起任何网络请求，没有遥测，也没有统计埋点。</span>
+          <span>扫描结果只活在内存里，没有遥测和统计埋点。只有主动运行诊断时才发起标准连通性探测，不上传扫描结果或用户内容。</span>
         </div>
       </li>
       <li>
         <span class="n">02</span>
         <div class="body">
           <b>规则可解释</b>
-          <span>连接状态来自固定信号阈值和安全类型，不是 AI 黑盒。每项结论都能回到当前连接的数据。</span>
+          <span>状态来自固定信号阈值、安全类型和逐层网络探测，不是 AI 黑盒。每项结论都能回到当前连接的数据。</span>
         </div>
       </li>
       <li>
@@ -1053,15 +1061,15 @@ footer.foot {
     <dl class="faq">
       <div class="faq-pair">
         <dt>和系统自带的 WiFi 列表有什么不同？</dt>
-        <dd>系统列表主要用于连接网络；Poliwave 补充展示 BSSID、信道、频率、RSSI 曲线、周边网络分布和当前连接状态。</dd>
+        <dd>系统列表主要用于连接网络；Poliwave 补充展示 BSSID、信道、频率、RSSI 曲线、周边网络分布，并可逐层诊断当前连接。</dd>
       </div>
       <div class="faq-pair">
         <dt>连接状态是 AI 生成的吗？</dt>
-        <dd>不是。状态只使用本机读取的当前信号和安全类型，不调用任何模型或外部 API。</dd>
+        <dd>不是。状态使用本机读取的信号、安全类型和标准网络探测，不调用任何模型或诊断 API。</dd>
       </div>
       <div class="faq-pair">
         <dt>我的扫描数据会上传吗？</dt>
-        <dd>不会。应用不发起任何网络请求，扫描结果只保存在内存中，关掉应用就消失。</dd>
+        <dd>不会。扫描结果只保存在内存中。只有主动运行一键诊断时，应用才会向公开检测目标发起 DNS、ICMP 或 TCP 探测，不上传扫描结果或用户内容。</dd>
       </div>
       <div class="faq-pair">
         <dt>它怎么拿到 WiFi 信息？</dt>

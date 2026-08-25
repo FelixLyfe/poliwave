@@ -1,3 +1,4 @@
+mod diagnostics;
 mod wifi;
 
 use tauri::{
@@ -13,8 +14,13 @@ const QUIT_MENU_ID: &str = "quit";
 
 // 标记 async 让扫描命令在独立线程执行，避免阻塞主线程。
 #[tauri::command(async)]
-fn scan_wifi() -> Result<wifi::ScanResult, String> {
+fn scan_wifi() -> Result<wifi::ScanResult, wifi::ScanError> {
     wifi::scan()
+}
+
+#[tauri::command(async)]
+fn diagnose_connection() -> diagnostics::ConnectionDiagnosticReport {
+    diagnostics::run(wifi::current_connection_name())
 }
 
 #[tauri::command]
@@ -36,6 +42,44 @@ fn open_wifi_settings(app: tauri::AppHandle) -> Result<(), String> {
     {
         let _ = app;
         Err("Poliwave 仅支持在 macOS 和 Windows 中打开 WiFi 设置。".to_string())
+    }
+}
+
+#[tauri::command]
+fn open_location_settings(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let settings_url =
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices";
+
+    #[cfg(target_os = "windows")]
+    let settings_url = "ms-settings:privacy-location";
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        app.opener()
+            .open_url(settings_url, None::<&str>)
+            .map_err(|error| format!("无法打开系统定位设置：{error}"))
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = app;
+        Err("Poliwave 仅支持在 macOS 和 Windows 中打开定位设置。".to_string())
+    }
+}
+
+#[tauri::command]
+fn request_location_permission(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        app.run_on_main_thread(wifi::request_location_authorization)
+            .map_err(|error| format!("无法请求定位权限：{error}"))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("请在系统定位设置中授予 Poliwave 权限。".to_string())
     }
 }
 
@@ -114,7 +158,13 @@ pub fn run() {
                 hide_control_panel(window.app_handle());
             }
         })
-        .invoke_handler(tauri::generate_handler![scan_wifi, open_wifi_settings])
+        .invoke_handler(tauri::generate_handler![
+            scan_wifi,
+            diagnose_connection,
+            open_wifi_settings,
+            open_location_settings,
+            request_location_permission
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {

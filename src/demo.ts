@@ -1,5 +1,11 @@
 import { clamp } from "./format";
-import type { Band, ChannelDistribution, ScanResult, WifiNetwork } from "./types";
+import type {
+  Band,
+  ChannelDistribution,
+  ConnectionDiagnosticReport,
+  ScanResult,
+  WifiNetwork,
+} from "./types";
 
 export function demoScan(): ScanResult {
   const now = new Date().toISOString();
@@ -22,6 +28,45 @@ export function demoScan(): ScanResult {
     source: "Browser demo data",
     networks,
     channelDistribution,
+  };
+}
+
+export function demoDiagnostics(): ConnectionDiagnosticReport {
+  return {
+    checkedAt: new Date().toISOString(),
+    overall: "healthy",
+    summary: "WiFi、DNS 与互联网连接均正常。",
+    checks: [
+      {
+        id: "wifi",
+        status: "pass",
+        title: "WiFi 已连接",
+        detail: "当前连接：Studio-5G",
+      },
+      {
+        id: "gateway",
+        status: "pass",
+        title: "本地网关可达",
+        detail: "192.168.1.1：平均延迟 2 ms，丢包 0%。",
+        latencyMs: 2,
+        packetLossPercent: 0,
+      },
+      {
+        id: "dns",
+        status: "pass",
+        title: "DNS 解析正常",
+        detail: "example.com 解析成功，耗时 18 ms。",
+        latencyMs: 18,
+      },
+      {
+        id: "internet",
+        status: "pass",
+        title: "互联网可达",
+        detail: "公共网络检测端点：平均延迟 32 ms，丢包 0%。",
+        latencyMs: 32,
+        packetLossPercent: 0,
+      },
+    ],
   };
 }
 
