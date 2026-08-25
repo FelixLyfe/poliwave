@@ -114,9 +114,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            #[cfg(target_os = "macos")]
-            wifi::request_location_authorization();
-
             let show_panel =
                 MenuItemBuilder::with_id(SHOW_PANEL_MENU_ID, "显示控制面板").build(app)?;
             let quit = MenuItemBuilder::with_id(QUIT_MENU_ID, "退出").build(app)?;
@@ -169,11 +166,42 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = event {
-                show_control_panel(app);
+            match event {
+                tauri::RunEvent::Ready => {
+                    show_control_panel(app);
+                    let _ = app.run_on_main_thread(wifi::request_location_authorization);
+                }
+                tauri::RunEvent::Reopen { .. } => show_control_panel(app),
+                _ => {}
             }
 
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, path::Path};
+
+    #[test]
+    fn macos_bundle_config_includes_location_entitlement() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let config: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(manifest_dir.join("tauri.conf.json"))
+                .expect("tauri.conf.json should be readable"),
+        )
+        .expect("tauri.conf.json should contain valid JSON");
+        let entitlement_path = config["bundle"]["macOS"]["entitlements"]
+            .as_str()
+            .expect("macOS bundles must reference an entitlements file");
+        let entitlements = fs::read_to_string(manifest_dir.join(entitlement_path))
+            .expect("the configured macOS entitlements file should be readable");
+
+        assert!(
+            entitlements
+                .contains("<key>com.apple.security.personal-information.location</key>\n  <true/>"),
+            "macOS bundles with hardened runtime must sign the location entitlement"
+        );
+    }
 }
