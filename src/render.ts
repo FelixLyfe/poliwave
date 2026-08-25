@@ -22,7 +22,7 @@ export function mountShell(root: HTMLElement): void {
     <main class="shell">
       <header class="command-bar">
         <div class="app-lockup">
-          <span class="app-icon" aria-hidden="true"><i data-lucide="wifi"></i></span>
+          <span class="app-icon" aria-hidden="true"><img src="/icon.png" alt="" /></span>
           <div class="app-title">
             <h1>Poliwave</h1>
             <p id="scanActivity" class="scan-activity" role="status" aria-live="polite">
